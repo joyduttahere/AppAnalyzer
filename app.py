@@ -1,5 +1,6 @@
 # BrandManager app.py
-# Version 2.3 - Corrected
+# Version 2.4 - Corrected
+import os
 import ssl
 import re
 import time
@@ -9,7 +10,7 @@ from functools import wraps
 from flask import Flask, render_template, request, jsonify
 import json
 import markdown2
-
+from pyngrok import ngrok
 # SSL Configuration
 try:
     _create_unverified_https_context = ssl._create_unverified_context
@@ -347,6 +348,12 @@ def get_models():
 
 # Flask app initialization
 app = Flask(__name__)
+ngrok_authtoken = os.environ.get('NGROK_AUTHTOKEN')
+if ngrok_authtoken:
+    ngrok.set_auth_token(ngrok_authtoken)
+    print("✅ Ngrok authtoken set successfully.")
+else:
+    print("⚠️  Warning: NGROK_AUTHTOKEN environment variable not set. Ngrok might fail.")
 
 # ==============================================================================
 # 3. UTILITY FUNCTIONS
@@ -1452,5 +1459,11 @@ def analyze_route():
 # ==============================================================================
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5500, debug=False)
-
+    try:
+        public_url = ngrok.connect(5000)
+        print("=====================================================================================")
+        print(f"✅ Your app is live! Access it here: {public_url}")
+        print("=====================================================================================")
+        app.run(port=5000)
+    except Exception as e:
+        print(f"\n❌ ERROR: An error occurred: {e}")
