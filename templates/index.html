@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Critique Hub</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css"/>
+    
+    <style>
+        /* Your excellent CSS from before goes here */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --primary: #6366f1; --primary-dark: #4338ca; --secondary: #f1f5f9; --accent: #0ea5e9; --text-primary: #1e293b; --text-secondary: #64748b; --text-muted: #94a3b8; --border: #e2e8f0; --border-light: #f1f5f9; --success: #10b981; --error: #ef4444; --warning: #f59e0b; --bg-primary: #ffffff; --bg-secondary: #f8fafc; --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05); --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); --radius: 8px; --radius-lg: 12px; }
+        /* 90% zoom applied to entire page */
+    
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: grid; grid-template-columns: 380px 1fr; gap: 0; zoom: 0.85;}
+        .sidebar { background: var(--bg-primary); padding: 2rem; overflow-y: auto; box-shadow: var(--shadow-lg); position: relative; }
+        .sidebar::before { content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%; background: linear-gradient(to bottom, transparent, var(--border), transparent); }
+        .main-content { background: var(--bg-secondary); padding: 2rem; overflow-y: auto; }
+        .logo-section { text-align: center; margin-bottom: 2.5rem; }
+        .logo-section h1 { font-size: 1.75rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .logo-section p { color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; }
+        .form-section { margin-bottom: 1.5rem; }
+        .step-label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; }
+        .step-number { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--primary); color: white; border-radius: 50%; font-size: 0.75rem; font-weight: 700; }
+        input, select, button { border: 1.5px solid var(--border); border-radius: var(--radius); padding: 0.75rem 1rem; font-size: 0.875rem; font-weight: 500; transition: all 0.2s ease; background: var(--bg-primary); width: 100%; }
+        input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgb(99 102 241 / 0.1); }
+        input::placeholder { color: var(--text-muted); }
+        select { cursor: pointer; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.75rem center; background-repeat: no-repeat; background-size: 1rem; padding-right: 2.5rem; appearance: none; }
+        select { text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+        .btn { cursor: pointer; font-weight: 600; text-align: center; transition: all 0.2s ease; border: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-secondary { background: var(--secondary); color: var(--text-primary); border: 1.5px solid var(--border); }
+        .btn-secondary:hover:not(:disabled) { background: var(--border); border-color: var(--text-muted); }
+        .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: white; border: 1.5px solid var(--primary); width: 100%; padding: 1rem; font-size: 1rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+        .loader { width: 20px; height: 20px; border: 2px solid var(--border-light); border-top: 2px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .error-message { color: var(--error); font-size: 0.875rem; margin-top: 0.75rem; padding: 0.75rem; background: rgb(239 68 68 / 0.1); border-radius: var(--radius); border-left: 3px solid var(--error); }
+        .welcome-card { background: var(--bg-primary); border-radius: var(--radius-lg); padding: 2rem; box-shadow: var(--shadow-md); max-width: 600px; }
+        .welcome-card h2 { color: var(--text-primary); margin-bottom: 1rem; font-size: 1.5rem; font-weight: 700; }
+        .welcome-card p { color: var(--text-secondary); margin-bottom: 1.5rem; line-height: 1.6; }
+        .steps-list { list-style: none; padding: 0; }
+        .steps-list li { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border-left: 3px solid var(--primary); }
+        .step-icon { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: var(--primary); color: white; border-radius: 50%; font-size: 0.75rem; font-weight: 700; flex-shrink: 0; margin-top: 0.125rem; }
+        .step-content { flex: 1; }
+        .step-content strong { color: var(--text-primary); }
+        .date-input { font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace; font-size: 0.875rem; }
+        @media (max-width: 1024px) { body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .sidebar { border-radius: 0; } }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: var(--bg-secondary); } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    </style>
+</head>
+
+<body>
+    <aside class="sidebar">
+        <div class="logo-section"><h1>Critique Hub</h1><p>Discover insights from Google Play Store</p></div>
+        <div class="form-section"><label class="step-label"><span class="step-number">1</span>Enter App Name or Keyword</label><input type="text" id="brand_name" placeholder="e.g., Netflix, JioMart, Spotify"></div>
+        <div class="form-section"><label class="step-label" for="country_select"><span class="step-number">2</span>Select Search Region</label><select id="country_select" name="country"><option value="in" selected>India (IN)</option><option value="us">United States (US)</option><option value="gb">United Kingdom (GB)</option><option value="ca">Canada (CA)</option><option value="au">Australia (AU)</option><option value="sg">Singapore (SG)</option><option value="id">Indonesia (ID)</option><option value="br">Brazil (BR)</option></select></div>
+        <div class="form-section"><button id="search_button" class="btn btn-secondary">Search for Apps</button></div>
+        <div class="form-section"><label class="step-label" for="app_id"><span class="step-number">3</span>Select App</label><select id="app_id" name="app_id" required><option value="">Search for an app first...</option></select></div>
+        <div class="form-section"><label class="step-label" for="date_range_1"><span class="step-number">4</span>Present Date Range</label><input type="text" id="date_range_1" class="date-input" placeholder="Select date range"></div>
+        <div class="form-section"><label class="step-label" for="date_range_2"><span class="step-number">5</span>Previous Date Range</label><input type="text" id="date_range_2" class="date-input" placeholder="Select date range"></div>
+        
+        <button id="analyze_button" class="btn btn-primary">
+            <span id="analyze_text">Analyze Reviews</span>
+            <div id="analyze_loader" class="loader" style="display: none;"></div>
+        </button>
+        
+        <!-- HIGHLIGHTED CHANGE #1: New HTML element for the patience message -->
+        <small id="patience_message" style="display: none; text-align: center; margin-top: 1rem; color: var(--text-secondary);">
+            This is a heavy AI task and may take up to 10 minutes. Thank you for your patience.
+        </small>
+        
+        <div id="error_message" class="error-message" style="display: none;"></div>
+    </aside>
+
+    <main class="main-content" id="results_pane">
+        <div class="welcome-card">
+            <h2>Welcome to Critique Hub! 🚀</h2>
+            <p>Unlock powerful insights from Google Play Store reviews with our advanced AI analysis. Compare different time periods to track sentiment, identify trending topics, and understand user feedback patterns.</p>
+            <ol class="steps-list">
+                <li><div class="step-icon">1</div><div class="step-content">Enter an <strong>app name or keyword</strong> to search.</div></li>
+                <li><div class="step-icon">2</div><div class="step-content">Choose the <strong>search region</strong> where the app is popular.</div></li>
+                <li><div class="step-icon">3</div><div class="step-content">Click <strong>Search for Apps</strong> to find matching applications.</div></li>
+                <li><div class="step-icon">4</div><div class="step-content">Select the <strong>correct app</strong> from the populated dropdown list.</div></li>
+                <li><div class="step-icon">5</div><div class="step-content">Select <strong>two date ranges</strong> to compare.</div></li>
+                <li><div class="step-icon">6</div><div class="step-content">Click <strong>Analyze Reviews</strong> to generate the intelligence dashboard.</div></li>
+            </ol>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchButton = document.getElementById('search_button');
+            const countrySelect = document.getElementById('country_select');
+            const analyzeButton = document.getElementById('analyze_button');
+            const brandNameInput = document.getElementById('brand_name');
+            const appIdSelect = document.getElementById('app_id');
+            const resultsPane = document.getElementById('results_pane');
+            const errorMessage = document.getElementById('error_message');
+            const analyzeText = document.getElementById('analyze_text');
+            const analyzeLoader = document.getElementById('analyze_loader');
+            // HIGHLIGHTED CHANGE #2: Get a reference to the new element
+            const patienceMessage = document.getElementById('patience_message');
+
+            new Litepicker({ element: document.getElementById('date_range_1'), singleMode: false, format: 'YYYY-MM-DD', delimiter: ' - ', autoApply: true, showTooltip: false });
+            new Litepicker({ element: document.getElementById('date_range_2'), singleMode: false, format: 'YYYY-MM-DD', delimiter: ' - ', autoApply: true, showTooltip: false });
+
+            searchButton.addEventListener('click', async () => {
+                const brandName = brandNameInput.value.trim();
+                const country = countrySelect.value;
+                if (!brandName) { showError('Please enter an app name or keyword.'); return; }
+                toggleLoading(true, 'search');
+                hideError();
+                try {
+                    const response = await fetch('/search-apps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brand_name: brandName, country: country }) });
+                    const apps = await response.json();
+                    if (!response.ok) throw new Error(apps.error || 'Search failed.');
+                    appIdSelect.innerHTML = '<option value="">-- Select an App --</option>';
+                    apps.forEach(app => appIdSelect.add(new Option(app.text, app.id)));
+                    if (apps.length === 0) showError('No apps found. Try a different search term or region.');
+                } catch (err) { showError('Search error: ' + err.message);
+                } finally { toggleLoading(false, 'search'); }
+            });
+
+            analyzeButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const formData = { app_id: appIdSelect.value, date_range_1: document.getElementById('date_range_1').value, date_range_2: document.getElementById('date_range_2').value };
+                if (!formData.app_id || !formData.date_range_1 || !formData.date_range_2) { showError('Please complete all steps before analyzing.'); return; }
+                
+                toggleLoading(true, 'analyze');
+                hideError();
+                // HIGHLIGHTED CHANGE #3: Show the patience message
+                patienceMessage.style.display = 'block';
+                
+                try {
+                    const response = await fetch('/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || 'Analysis failed.');
+                    if (result.html) {
+                        resultsPane.innerHTML = result.html;
+                    } else { throw new Error('No results received from server.'); }
+                } catch (err) {
+                    showError('Analysis error: ' + err.message);
+                } finally {
+                    toggleLoading(false, 'analyze');
+                    // HIGHLIGHTED CHANGE #4: Hide the patience message
+                    patienceMessage.style.display = 'none';
+                }
+            });
+
+            brandNameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { searchButton.click(); } });
+            
+            function toggleLoading(isLoading, type) {
+                if (type === 'search') {
+                    searchButton.disabled = isLoading;
+                    searchButton.innerHTML = isLoading ? '<div class="loader" style="margin: 0 auto;"></div>' : 'Search for Apps';
+                } else if (type === 'analyze') {
+                    // When analyzing, disable BOTH buttons
+                    analyzeButton.disabled = isLoading;
+                    searchButton.disabled = isLoading;
+                    
+                    if (isLoading) {
+                        analyzeText.style.display = 'none';
+                        analyzeLoader.style.display = 'inline-block';
+                    } else {
+                        analyzeText.style.display = 'inline-block';
+                        analyzeLoader.style.display = 'none';
+                        // IMPORTANT: Explicitly re-enable the search button when analysis is done
+                        searchButton.disabled = false; 
+                    }
+                }
+            }
+            function showError(message) { errorMessage.textContent = message; errorMessage.style.display = 'block'; }
+            function hideError() { errorMessage.style.display = 'none'; }
+        });
+    </script>
+</body>
+</html>
