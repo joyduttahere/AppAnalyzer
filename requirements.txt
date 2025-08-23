@@ -7,8 +7,8 @@ gevent   # NEW: The asynchronous worker for Gunicorn
 google-play-scraper==1.2.6
 
 # NLP Libraries (for placeholder analysis)
-nltk==3.8.1
-spacy==3.7.4
+#nltk==3.8.1
+#spacy==3.7.4
 
 # Library to load .env files for proxy settings
 python-dotenv==1.0.1

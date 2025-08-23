@@ -321,19 +321,15 @@ TOPIC_CATEGORIES = PAIN_POINT_CATEGORIES
 MODELS = None # Global placeholder for our models
 # Global cache for models - now stores multiple models
 MODEL_CACHE = {}
-"""
+
 # GPU Avialble
-def get_models(selected_model=None): #For GPU
-    #Initializes and returns the AI models, loading them only once per model type.
-    #Now supports dynamic model selection.
-    
+def get_models(selected_model=None):
+    """Initializes and returns the AI models with updated model selection."""
     global MODEL_CACHE
     
-    # Default to Mistral if no model specified
     if selected_model is None:
-        selected_model = "mistralai/Mistral-7B-Instruct-v0.3"
+        selected_model = "microsoft/DialoGPT-medium"  # Changed default
     
-    # Check if this specific model combination is already cached
     cache_key = f"reasoning_{selected_model}"
     
     if "classifier" not in MODEL_CACHE or cache_key not in MODEL_CACHE:
@@ -341,96 +337,144 @@ def get_models(selected_model=None): #For GPU
         DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {DEVICE}")
         
-        # Load classifier model once (same for all requests)
+        # Load classifier model once
         if "classifier" not in MODEL_CACHE:
             print("Loading Classifier Model...")
-            classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-            classifier_model = AutoModelForSequenceClassification.from_pretrained(
-                "cardiffnlp/twitter-roberta-base-sentiment-latest"
-            ).to(DEVICE)
-            print("Classifier model loaded.")
-            
-            MODEL_CACHE["classifier"] = {
-                'tokenizer': classifier_tokenizer,
-                'model': classifier_model
-            }
+            try:
+                classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
+                classifier_model = AutoModelForSequenceClassification.from_pretrained(
+                    "cardiffnlp/twitter-roberta-base-sentiment-latest"
+                ).to(DEVICE)
+                print("Classifier model loaded.")
+                
+                MODEL_CACHE["classifier"] = {
+                    'tokenizer': classifier_tokenizer,
+                    'model': classifier_model
+                }
+            except Exception as e:
+                print(f"Error loading classifier model: {e}")
+                raise
         
-        # Load reasoning model based on selection
+        # Load reasoning model
         if cache_key not in MODEL_CACHE:
             print(f"Loading Reasoning Model: {selected_model}...")
-            reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
             
-            # Different loading strategies based on model type
-            if "mistral" in selected_model.lower():
-                # Use quantization for large Mistral models
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True, 
-                    bnb_4bit_quant_type="nf4", 
-                    bnb_4bit_compute_dtype=torch.bfloat16
-                )
-                reasoning_model = AutoModelForCausalLM.from_pretrained(
-                    selected_model, 
-                    quantization_config=quantization_config, 
-                    device_map="auto"
-                )
-                # No .to(DEVICE) for quantized models
-                print(f"Quantized reasoning model ({selected_model}) loaded successfully.")
+            try:
+                reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
                 
-            elif "openchat" in selected_model.lower():
-                # OpenChat models - use quantization if available, otherwise standard loading
-                try:
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True, 
-                        bnb_4bit_quant_type="nf4", 
-                        bnb_4bit_compute_dtype=torch.bfloat16
-                    )
+                # Add padding token if missing
+                if reasoning_tokenizer.pad_token is None:
+                    reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
+                
+                # Model-specific loading
+                if "dialo" in selected_model.lower():
                     reasoning_model = AutoModelForCausalLM.from_pretrained(
-                        selected_model, 
-                        quantization_config=quantization_config, 
-                        device_map="auto"
-                    )
-                    print(f"Quantized OpenChat model ({selected_model}) loaded successfully.")
-                except Exception as e:
-                    print(f"Quantization failed for {selected_model}, falling back to standard loading: {e}")
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                    print(f"Standard OpenChat model ({selected_model}) loaded successfully.")
+                        selected_model,
+                        torch_dtype=torch.float16,
+                        trust_remote_code=True
+                    ).to(DEVICE)
+                    print(f"DialoGPT model ({selected_model}) loaded successfully.")
                     
-            elif "dialogpt" in selected_model.lower():
-                # DialoGPT models - lighter, standard loading
-                reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                print(f"DialoGPT model ({selected_model}) loaded successfully.")
-                
-            else:
-                # Default loading strategy for unknown models
-                try:
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                    print(f"Standard model ({selected_model}) loaded successfully.")
-                except Exception as e:
-                    print(f"Error loading {selected_model}: {e}")
-                    # Fallback to Mistral if the selected model fails
-                    print("Falling back to Mistral 7B...")
-                    selected_model = "mistralai/Mistral-7B-Instruct-v0.3"
-                    cache_key = f"reasoning_{selected_model}"
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True, 
-                        bnb_4bit_quant_type="nf4", 
-                        bnb_4bit_compute_dtype=torch.bfloat16
-                    )
+                elif "distilgpt2" in selected_model.lower():
                     reasoning_model = AutoModelForCausalLM.from_pretrained(
-                        selected_model, 
-                        quantization_config=quantization_config, 
-                        device_map="auto"
-                    )
-            
-            MODEL_CACHE[cache_key] = {
-                'tokenizer': reasoning_tokenizer,
-                'model': reasoning_model,
-                'model_name': selected_model
-            }
+                        selected_model,
+                        torch_dtype=torch.float16,
+                        trust_remote_code=True
+                    ).to(DEVICE)
+                    print(f"DistilGPT2 model ({selected_model}) loaded successfully.")
+                    
+                elif "smollm" in selected_model.lower():
+                    try:
+                        quantization_config = BitsAndBytesConfig(
+                            load_in_4bit=True, 
+                            bnb_4bit_quant_type="nf4", 
+                            bnb_4bit_compute_dtype=torch.bfloat16
+                        )
+                        reasoning_model = AutoModelForCausalLM.from_pretrained(
+                            selected_model, 
+                            quantization_config=quantization_config, 
+                            device_map="auto",
+                            torch_dtype=torch.bfloat16,
+                            trust_remote_code=True
+                        )
+                        print(f"Quantized SmolLM model ({selected_model}) loaded successfully.")
+                        
+                    except Exception as quant_error:
+                        print(f"Quantization failed for {selected_model}: {quant_error}")
+                        print("Falling back to standard loading...")
+                        
+                        reasoning_model = AutoModelForCausalLM.from_pretrained(
+                            selected_model,
+                            torch_dtype=torch.float16,
+                            trust_remote_code=True
+                        ).to(DEVICE)
+                        print(f"Standard SmolLM model ({selected_model}) loaded successfully.")
+                        
+                elif "phi-2" in selected_model.lower():
+                    try:
+                        quantization_config = BitsAndBytesConfig(
+                            load_in_4bit=True, 
+                            bnb_4bit_quant_type="nf4", 
+                            bnb_4bit_compute_dtype=torch.bfloat16
+                        )
+                        reasoning_model = AutoModelForCausalLM.from_pretrained(
+                            selected_model, 
+                            quantization_config=quantization_config, 
+                            device_map="auto",
+                            torch_dtype=torch.bfloat16,
+                            trust_remote_code=True
+                        )
+                        print(f"Quantized Phi-2 model ({selected_model}) loaded successfully.")
+                        
+                    except Exception as quant_error:
+                        print(f"Quantization failed for {selected_model}: {quant_error}")
+                        print("Falling back to standard loading...")
+                        
+                        reasoning_model = AutoModelForCausalLM.from_pretrained(
+                            selected_model,
+                            torch_dtype=torch.float16,
+                            trust_remote_code=True
+                        ).to(DEVICE)
+                        print(f"Standard Phi-2 model ({selected_model}) loaded successfully.")
+                        
+                else:
+                    # Default loading
+                    try:
+                        reasoning_model = AutoModelForCausalLM.from_pretrained(
+                            selected_model,
+                            torch_dtype=torch.float16,
+                            trust_remote_code=True
+                        ).to(DEVICE)
+                        print(f"Standard model ({selected_model}) loaded successfully.")
+                        
+                    except Exception as model_error:
+                        print(f"Error loading {selected_model}: {model_error}")
+                        # Fallback to DialoGPT
+                        print("Falling back to DialoGPT...")
+                        selected_model = "microsoft/DialoGPT-medium"
+                        cache_key = f"reasoning_{selected_model}"
+                        
+                        reasoning_model = AutoModelForCausalLM.from_pretrained(
+                            selected_model,
+                            torch_dtype=torch.float16,
+                            trust_remote_code=True
+                        ).to(DEVICE)
+                        reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
+                        if reasoning_tokenizer.pad_token is None:
+                            reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
+                
+                MODEL_CACHE[cache_key] = {
+                    'tokenizer': reasoning_tokenizer,
+                    'model': reasoning_model,
+                    'model_name': selected_model
+                }
+                
+            except Exception as e:
+                print(f"Critical error loading reasoning model {selected_model}: {e}")
+                raise
         
         print("--- MODEL LOADING COMPLETE ---")
     
-    # Return the models
     return {
         'device': "cuda" if torch.cuda.is_available() else "cpu",
         'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
@@ -439,6 +483,8 @@ def get_models(selected_model=None): #For GPU
         'reasoning_model': MODEL_CACHE[cache_key]['model'],
         'selected_model': MODEL_CACHE[cache_key]['model_name']
     }
+
+
 """
 # For TPU:
 def get_models(selected_model=None): #For TPU
@@ -516,7 +562,7 @@ def get_models(selected_model=None): #For TPU
         'reasoning_model': MODEL_CACHE[cache_key]['model'],
         'selected_model': MODEL_CACHE[cache_key]['model_name']
     }
-
+"""
 
 # Flask app initialization
 app = Flask(__name__)
@@ -1031,127 +1077,140 @@ Create a concise 3-4 sentence executive summary that:
         return f"Analyzed {total_requests} feature requests across {len(feature_themes)} main themes. Key areas include {', '.join(list(feature_themes.keys())[:2])}."
 
 def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    models = get_models(selected_model) # Pass the model name here
+    """FIXED: Generate category summaries with proper error handling."""
+    models = get_models(selected_model)
     if not reviews:
         return "No reviews available for analysis."
     
-    # Use top 15 reviews for better analysis
-    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:15]])
-    
+    # Limit reviews for summary to prevent token overflow
+    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:8]])  # Reduced to 8
     sentiment_type = "positive feedback" if is_positive else "user complaints"
     
-    prompt = f"""<s>[INST] Analyze these {sentiment_type} about "{category_name}". Write a concise 60-word summary of the main themes.
+    # Better prompts for different models
+    if "dialo" in models['selected_model'].lower():
+        # DialoGPT works better with conversational prompts
+        prompt = f"Analyze {sentiment_type} about {category_name}:\n{review_texts}\nSummary:"
+    else:
+        # For other models, use instruction format
+        prompt = f"""<s>[INST] Analyze these {sentiment_type} about "{category_name}". Write a concise 60-word summary of the main themes.
 Here are the user reviews:
 {review_texts} [/INST]
-**Key Summary**
-"""
+Summary: """
     
     try:
-        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
-        with torch.no_grad():
-            outputs = models['reasoning_model'].generate(**inputs, max_new_tokens=500, eos_token_id=models['reasoning_tokenizer'].eos_token_id, pad_token_id=models['reasoning_tokenizer'].eos_token_id)
-        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
-        clear_gpu_cache()
-
-        # Extract summary after the marker
-        if "**Key Summary**" in response_text:
-            summary = response_text.split("**Key Summary**")[-1].strip()
-        else:
-            # Fallback extraction
-            summary = response_text.split("[/INST]")[-1].strip()
+        # Use the existing generate_response function from your code
+        summary = generate_response(
+            models['reasoning_model'], 
+            models['reasoning_tokenizer'], 
+            prompt, 
+            max_length=300
+        )
         
-        # Clean up
-        summary = summary.replace("[/INST]", "").strip()
+        # Clean up the response
+        if "[/INST]" in summary:
+            summary = summary.split("[/INST]")[-1].strip()
+        if "Summary:" in summary:
+            summary = summary.split("Summary:")[-1].strip()
+        
+        # Remove any extra formatting
+        summary = summary.replace("**Key Summary**", "").strip()
+        
+        # Ensure the summary isn't empty
+        if not summary or len(summary) < 10:
+            return f"Users mention issues with {category_name} functionality and features."
+        
+        print(f"Generated summary for {category_name}: {summary[:100]}...")
         return summary
+        
     except Exception as e:
-        print(f"Error generating category summary: {e}")
+        print(f"Error generating category summary for {category_name}: {e}")
         return f"Analysis of {category_name} feedback from user reviews."
 
 def summarize_with_llm(reviews, selected_model=None):
-    models = get_models(selected_model) # Pass the model name here
+    """FIXED: Generate AI summary for insights with better prompts."""
+    models = get_models(selected_model)
     
     if not reviews:
         return "No critical reviews available to generate a summary."
     
-    # Limit to top 10 reviews for efficiency
-    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:10]])
+    # Limit to top 8 most negative reviews for focused analysis
+    sorted_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:8]
+    review_texts = "\n".join([f"- {r['content']}" for r in sorted_reviews])
     
-    prompt = f"""<s>[INST] You are a Senior Product Analyst creating a product development brief.
+    # Better prompts for different models
+    if "dialo" in models['selected_model'].lower():
+        prompt = f"""Analyze these user complaints and identify top 3 critical issues:
+{review_texts}
+
+Product Brief:
+1. **Issue 1**: 
+2. **Issue 2**: 
+3. **Issue 3**: """
+    else:
+        prompt = f"""<s>[INST] You are a Senior Product Analyst creating a product development brief.
 Your task is to analyze the following user reviews and identify the top 2-3 most critical themes.
 For each theme:
-1. Create a clear, bolded title (e.g., **1. Customer Support & Order Management**).
-2. Write a short, one-sentence "Problem" statement explaining the core issue.
-3. Provide a bulleted list of 2-3 specific, actionable "Recommendations" for the engineering and product teams.
+1. Create a clear, bolded title (e.g., **1. Customer Support Issues**).
+2. Write one sentence explaining the core problem.
+3. Provide 2 specific recommendations.
 
 Here are the user reviews:
 {review_texts} [/INST]
 
-**Product Development Brief: Key Improvement Opportunities**
+**Product Development Brief**
 
 """
     
     try:
-        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
-        with torch.no_grad():
-            outputs = models['reasoning_model'].generate(**inputs, max_new_tokens=400, eos_token_id=models['reasoning_tokenizer'].eos_token_id, pad_token_id=models['reasoning_tokenizer'].eos_token_id)
-        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
-        clear_gpu_cache()
-
-        # Extract summary after the marker
-        if "**Product Development Brief: Key Improvement Opportunities**" in response_text:
-            summary = response_text.split("**Product Development Brief: Key Improvement Opportunities**")[-1].strip()
-        else:
-            # Fallback extraction
-            summary = response_text.split("[/INST]")[-1].strip()
+        # Use the existing generate_response function
+        summary = generate_response(
+            models['reasoning_model'], 
+            models['reasoning_tokenizer'], 
+            prompt, 
+            max_length=500
+        )
         
-        # Clean up
-        summary = summary.replace("[/INST]", "").strip()
+        # Clean up the response
+        if "[/INST]" in summary:
+            summary = summary.split("[/INST]")[-1].strip()
+        if "**Product Development Brief**" in summary:
+            summary = summary.split("**Product Development Brief**")[-1].strip()
+        
+        # Convert to HTML
         summary_html = markdown2.markdown(summary)
-        
+        print(f"Generated AI insights summary: {len(summary_html)} characters")
         return summary_html
+        
     except Exception as e:
-        print(f"Error generating LLM summary: {e}")
-        return "Unable to generate AI summary at this time."
+        print(f"Error generating AI insights summary: {e}")
+        return f"<p>Unable to generate AI summary. Analysis shows {len(reviews)} critical reviews need attention.</p>"
 
 def analyze_reviews_roberta(review_list, selected_model=None):
     """Analyze reviews using RoBERTa sentiment analysis with dynamic model selection."""
     models = get_models(selected_model)  # Pass the selected model
-    
+
     if not review_list:
         return {
-            'avg_sentiment_score': 0, 
-            'topics': {}, 
-            'pain_points': {}, 
-            'praise_points': {}, 
-            'attention_reviews': [], 
-            'praise_reviews': [], 
-            'total_review_count': 0
+            'avg_sentiment_score': 0, 'topics': {}, 'pain_points': {}, 'praise_points': {},
+            'attention_reviews': [], 'praise_reviews': [], 'total_review_count': 0
         }
-    
-    # Rest of the function remains the same...
-    # [Keep all the existing logic but models is now loaded with the selected model]
-    
-    # THE FIX: Filter out reviews with empty or invalid content at the very beginning
+
+    # Filter out reviews with empty or invalid content at the very beginning
     valid_reviews = [r for r in review_list if r and isinstance(r.get('content'), str) and r.get('content').strip()]
 
     if not valid_reviews:
         return {
-            'avg_sentiment_score': 0, 'topics': {}, 'pain_points': {}, 'praise_points': {}, 
-            'attention_reviews': [], 'praise_reviews': [], 'total_review_count': 0,
-            'feature_requests': [], 'feature_themes': {}, 'total_feature_requests': 0
+            'avg_sentiment_score': 0, 'topics': {}, 'pain_points': {}, 'praise_points': {},
+            'attention_reviews': [], 'praise_reviews': [], 'total_review_count': 0
         }
 
     total_review_count = len(valid_reviews)
-    # Use the cleaned list from now on
     texts = [review['content'] for review in valid_reviews]
     sentiments = []
     batch_size = 16
 
     print(f"Analyzing sentiment with model: {models.get('selected_model', 'Unknown')}...")
-    
-    # [Rest of the function continues exactly as before...]
-    # [All the existing sentiment analysis logic remains unchanged]
-    
+
     # Process reviews in batches
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
@@ -1161,134 +1220,121 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         scores = outputs.logits.softmax(dim=-1).cpu().numpy()
         sentiments.extend(scores)
         clear_gpu_cache()
-    
-    # [Continue with all existing logic...]
-    # [The rest of the function remains exactly the same]
-    
+
     # Apply sentiment scores with enhanced detection
     for review, score in zip(valid_reviews, sentiments):
         base_score = score[2] - score[0]  # positive - negative
         content_lower = review['content'].lower()
-        
+
         final_score = base_score
         is_hard_negative = False
-        is_hard_positive = False
 
-        # Critical issues override (strongest negative)
         if any(keyword in content_lower for keyword in CRITICAL_ISSUES_SET):
             final_score = -0.95
             is_hard_negative = True
-        # Strong negative indicators
         elif any(indicator in content_lower for indicator in NEGATIVE_INDICATORS_SET):
-            final_score = min(-0.6, base_score)  # Ensure it's negative but don't override if already more negative
+            final_score = min(-0.6, base_score)
             is_hard_negative = True
-        
-        # Only check for positives if it's not already flagged as negative
+
         if not is_hard_negative and any(indicator in content_lower for indicator in POSITIVE_INDICATORS_SET):
-            if base_score > 0:  # Only boost if already positive
+            if base_score > 0:
                 final_score = max(base_score, 0.7)
             else:
                 final_score = base_score + 0.2
-                
+
         review['sentiment_score'] = final_score
         review['display_content'] = review['content'][:250] + "..." if len(review['content']) > 250 else review['content']
-    
-    # [Continue with all existing category analysis logic...]
-    # [All the rest remains exactly the same...]
-    
-    # IMPROVED: More lenient thresholds for positive/negative classification
-    POSITIVE_THRESHOLD = 0.1  # Lower threshold to catch more positive reviews
-    NEGATIVE_THRESHOLD = -0.1  # Higher threshold to catch more negative reviews
-    
-    # Initialize category mentions structure
+
+    POSITIVE_THRESHOLD = 0.1
+    NEGATIVE_THRESHOLD = -0.1
+
+    # **FIX**: Initialize all variables that will be populated.
+    pain_points = {}
+    praise_points = {}
     category_mentions = {}
     for main_cat, sub_topics in TOPIC_CATEGORIES.items():
         category_mentions[main_cat] = {
             'sub_topics': {sub_cat: {
-                'total': 0, 'pos': 0, 'neg': 0, 
-                'negative_reviews_for_display': [], # For UI (max 3)
-                'positive_reviews_for_display': [], # For UI (max 3)
-                'negative_reviews_for_summary': [], # For AI (max 15)
-                'positive_reviews_for_summary': []  # For AI (max 15)
+                'total': 0, 'pos': 0, 'neg': 0,
+                'negative_reviews_for_display': [],
+                'positive_reviews_for_display': [],
+                'negative_reviews_for_summary': [],
+                'positive_reviews_for_summary': []
             } for sub_cat in sub_topics},
             'main_total': 0, 'main_pos': 0, 'main_neg': 0, 'summary': '', 'positive_summary': ''
         }
 
-    # IMPROVED: Better sentiment classification logic
+    # Classify reviews into categories
     for review in valid_reviews:
         sentiment_score = review['sentiment_score']
         is_pos = sentiment_score > POSITIVE_THRESHOLD
         is_neg = sentiment_score < NEGATIVE_THRESHOLD
-        
-        # Debug print for first few reviews
-        if valid_reviews.index(review) < 5:
-            print(f"Review {valid_reviews.index(review)}: Score={sentiment_score:.3f}, Pos={is_pos}, Neg={is_neg}")
-        
+
         for main_cat, sub_topics in TOPIC_CATEGORIES.items():
-            category_matched = False  # Track if this review matched any subcategory
-            
             for sub_cat, keywords in sub_topics.items():
                 if any(keyword in review['content'].lower() for keyword in keywords):
                     stats = category_mentions[main_cat]['sub_topics'][sub_cat]
-                    
-                    # Only count once per subcategory per review
                     stats['total'] += 1
-                    category_matched = True
-                    
                     if is_pos:
                         stats['pos'] += 1
-                        if len(stats['positive_reviews_for_display']) < 3: 
-                            stats['positive_reviews_for_display'].append(review)
-                        if len(stats['positive_reviews_for_summary']) < 15: 
-                            stats['positive_reviews_for_summary'].append(review)
+                        if len(stats['positive_reviews_for_display']) < 3: stats['positive_reviews_for_display'].append(review)
+                        if len(stats['positive_reviews_for_summary']) < 15: stats['positive_reviews_for_summary'].append(review)
                     elif is_neg:
                         stats['neg'] += 1
-                        if len(stats['negative_reviews_for_display']) < 3: 
-                            stats['negative_reviews_for_display'].append(review)
-                        if len(stats['negative_reviews_for_summary']) < 15: 
-                            stats['negative_reviews_for_summary'].append(review)
-                    
-                    # Break after first keyword match to avoid double counting
-                    break
-    
+                        if len(stats['negative_reviews_for_display']) < 3: stats['negative_reviews_for_display'].append(review)
+                        if len(stats['negative_reviews_for_summary']) < 15: stats['negative_reviews_for_summary'].append(review)
+                    break  # Avoid double counting in the same main category
+
     print("Generating topic summaries...")
 
-    # Calculate main category totals and generate summaries
+    # Generate summaries and populate pain/praise points
     for main_cat, data in category_mentions.items():
         data['main_pos'] = sum(sub['pos'] for sub in data['sub_topics'].values())
         data['main_neg'] = sum(sub['neg'] for sub in data['sub_topics'].values())
         data['main_total'] = data['main_pos'] + data['main_neg']
-        
-        # Debug print for categories with matches
-        if data['main_total'] > 0:
-            print(f"{main_cat}: Total={data['main_total']}, Pos={data['main_pos']}, Neg={data['main_neg']}")
-        
-        negative_summary_reviews = [r for sub in data['sub_topics'].values() for r in sub['negative_reviews_for_summary']]
-        positive_summary_reviews = [r for sub in data['sub_topics'].values() for r in sub['positive_reviews_for_summary']]
-        negative_summary_reviews.sort(key=lambda r: r['sentiment_score'])
-        positive_summary_reviews.sort(key=lambda r: r['sentiment_score'], reverse=True)
-        
-        if data['main_neg'] >= 3:
-            data['summary'] = generate_category_summary(negative_summary_reviews, main_cat, is_positive=False, selected_model=selected_model)
-        if data['main_pos'] >= 3:
-            data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True, selected_model=selected_model)
 
-    pain_points = {k: v for k, v in category_mentions.items() if v['main_neg'] > v['main_pos'] and v['main_neg'] > 0}
-    praise_points = {k: v for k, v in category_mentions.items() if v['main_pos'] > v['main_neg'] and v['main_pos'] > 0}
-    
+        if data['main_total'] > 0:
+            print(f"Processing {main_cat}: Total={data['main_total']}, Pos={data['main_pos']}, Neg={data['main_neg']}")
+            # **FIX**: Populate pain_points and praise_points after calculating totals
+            if data['main_neg'] > 0:
+                pain_points[main_cat] = data
+            if data['main_pos'] > 0:
+                praise_points[main_cat] = data
+
+        negative_summary_reviews = sorted([r for sub in data['sub_topics'].values() for r in sub['negative_reviews_for_summary']], key=lambda r: r['sentiment_score'])
+        positive_summary_reviews = sorted([r for sub in data['sub_topics'].values() for r in sub['positive_reviews_for_summary']], key=lambda r: r['sentiment_score'], reverse=True)
+
+        if len(negative_summary_reviews) >= 2:
+            print(f"Generating negative summary for {main_cat}...")
+            try:
+                data['summary'] = generate_category_summary(negative_summary_reviews, main_cat, is_positive=False, selected_model=selected_model)
+                print(f"✅ Generated negative summary for {main_cat}: {data['summary'][:100]}...")
+            except Exception as e:
+                print(f"❌ Failed to generate negative summary for {main_cat}: {e}")
+                data['summary'] = f"Users report various issues with {main_cat} functionality."
+
+        if len(positive_summary_reviews) >= 2:
+            print(f"Generating positive summary for {main_cat}...")
+            try:
+                data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True, selected_model=selected_model)
+                print(f"✅ Generated positive summary for {main_cat}: {data['positive_summary'][:100]}...")
+            except Exception as e:
+                print(f"❌ Failed to generate positive summary for {main_cat}: {e}")
+                data['positive_summary'] = f"Users appreciate {main_cat} features and functionality."
+
     # Calculate average sentiment score
     total_sentiment = sum(r['sentiment_score'] for r in valid_reviews)
     avg_sentiment_score = ((total_sentiment / len(valid_reviews)) + 1) * 2.5 if valid_reviews else 0
-    
-    # IMPROVED: Use the same thresholds for final review lists
-    all_attention_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] < NEGATIVE_THRESHOLD], 
+
+    # **FIX**: Define attention/praise reviews *before* they are used.
+    all_attention_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] < NEGATIVE_THRESHOLD],
                                  key=lambda r: r['sentiment_score'])
-    all_praise_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] > POSITIVE_THRESHOLD], 
+    all_praise_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] > POSITIVE_THRESHOLD],
                                key=lambda r: r['sentiment_score'], reverse=True)
 
-    # Print final stats for debugging
+    # This print statement is now safe to execute
     print(f"Final stats: Total reviews={total_review_count}, Negative={len(all_attention_reviews)}, Positive={len(all_praise_reviews)}")
-   
+
     return {
         'avg_sentiment_score': round(avg_sentiment_score, 2),
         'topics': category_mentions,
@@ -1296,9 +1342,28 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         'praise_points': dict(sorted(praise_points.items(), key=lambda i: i[1]['main_pos'], reverse=True)),
         'attention_reviews': all_attention_reviews,
         'praise_reviews': all_praise_reviews,
-        'total_review_count': total_review_count 
+        'total_review_count': total_review_count
     }
-
+def generate_response(model, tokenizer, prompt, max_length=400):
+    """Generic function to generate a response from a causal LM."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
+    
+    with torch.no_grad():
+        # Generate output with sampling for more creative and less repetitive responses
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_length,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id,
+            do_sample=True,
+            top_p=0.9,
+            temperature=0.7
+        )
+    
+    response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    clear_gpu_cache()
+    return response_text    
 def find_proof_reviews(reviews, category, limit=3):
     """Find proof reviews for a specific category."""
     proof = []

@@ -71,23 +71,39 @@
         <div class="form-section"><label class="step-label" for="date_range_1"><span class="step-number">4</span>Present Date Range</label><input type="text" id="date_range_1" class="date-input" placeholder="Select date range"></div>
         
         <div class="form-section"><label class="step-label" for="date_range_2"><span class="step-number">5</span>Previous Date Range</label><input type="text" id="date_range_2" class="date-input" placeholder="Select date range"></div>
-        
-        <!-- NEW: Advanced Model Selection Section -->
-        <div class="advanced-section">
-            <div class="advanced-toggle">⚙️ Advanced Settings</div>
-            <div class="form-section">
-                <label class="step-label" for="ai_model_select"><span class="step-number">6</span>AI Analysis Model</label>
-                <select id="ai_model_select" name="ai_model">
-                    <option value="mistralai/Mistral-7B-Instruct-v0.3" selected>Mistral 7B Instruct (Recommended)</option>
-                    <option value="openchat/openchat-3.5-1210">OpenChat 3.5 (Fast & Efficient)</option>
-                    <option value="microsoft/DialoGPT-large">DialoGPT Large (Lightweight)</option>
-                    <option value="microsoft/DialoGPT-medium">DialoGPT Medium (Memory Optimized)</option>
-                </select>
-                <div class="model-info" id="model_info">
-                    High-quality analysis with detailed insights and comprehensive reasoning capabilities.
-                </div>
-            </div>
+
+        <!-- Updated Advanced Model Selection Section -->
+<div class="advanced-section">
+    <div class="advanced-toggle">⚙️ Advanced Settings</div>
+    <div class="form-section">
+        <label class="step-label" for="ai_model_select"><span class="step-number">6</span>AI Analysis Model</label>
+        <select id="ai_model_select" name="ai_model">
+            <option value="microsoft/DialoGPT-medium" selected>DialoGPT Medium (Recommended - 774MB)</option>
+            <option value="distilgpt2">DistilGPT2 (Ultra Lightweight - 353MB)</option>
+            <option value="HuggingFaceTB/SmolLM2-1.7B">SmolLM2 1.7B (Modern & Efficient - 3.4GB)</option>
+            <option value="microsoft/phi-2">Microsoft Phi-2 (Advanced Reasoning - 5.4GB)</option>
+        </select>
+        <div class="model-info" id="model_info">
+            Conversational AI model optimized for dialogue understanding and response generation.
         </div>
+    </div>
+</div>
+
+<script>
+// Update model info descriptions
+const modelDescriptions = {
+    "microsoft/DialoGPT-medium": "Conversational AI model optimized for dialogue understanding and response generation.",
+    "distilgpt2": "Ultra-lightweight GPT-2 variant, fastest processing with good text generation capabilities.", 
+    "HuggingFaceTB/SmolLM2-1.7B": "Modern efficient language model with strong reasoning capabilities and compact size.",
+    "microsoft/phi-2": "Advanced Microsoft model with superior reasoning and analytical capabilities for complex tasks."
+};
+
+document.getElementById('ai_model_select').addEventListener('change', function() {
+    const selectedModel = this.value;
+    const modelInfo = document.getElementById('model_info');
+    modelInfo.textContent = modelDescriptions[selectedModel] || "High-quality analysis model.";
+});
+</script>
         
         <button id="analyze_button" class="btn btn-primary">
             <span id="analyze_text">Analyze Reviews</span>
