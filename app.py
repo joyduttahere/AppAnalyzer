@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.4 - Corrected
+# Version 2.5 - With TPU Connection
 import os
 import ssl
 import re
@@ -321,12 +321,12 @@ TOPIC_CATEGORIES = PAIN_POINT_CATEGORIES
 MODELS = None # Global placeholder for our models
 # Global cache for models - now stores multiple models
 MODEL_CACHE = {}
-
-def get_models(selected_model=None):
-    """
-    Initializes and returns the AI models, loading them only once per model type.
-    Now supports dynamic model selection.
-    """
+"""
+# GPU Avialble
+def get_models(selected_model=None): #For GPU
+    #Initializes and returns the AI models, loading them only once per model type.
+    #Now supports dynamic model selection.
+    
     global MODEL_CACHE
     
     # Default to Mistral if no model specified
@@ -439,6 +439,84 @@ def get_models(selected_model=None):
         'reasoning_model': MODEL_CACHE[cache_key]['model'],
         'selected_model': MODEL_CACHE[cache_key]['model_name']
     }
+"""
+# For TPU:
+def get_models(selected_model=None): #For TPU
+    #Initializes and returns AI models for a TPU environment.
+    #NOTE: Quantization is NOT supported on TPUs.
+    
+    global MODEL_CACHE
+    
+    if selected_model is None:
+        selected_model = "microsoft/DialoGPT-large" # Default to a smaller model for TPUs
+    
+    cache_key = f"reasoning_{selected_model}"
+    
+    if "classifier" not in MODEL_CACHE or cache_key not in MODEL_CACHE:
+        print(f"--- LOADING MODELS FOR TPU: {selected_model} ---")
+        
+        # 1. GET THE TPU DEVICE
+        # This is the correct way to get the TPU device.
+        try:
+            DEVICE = xm.xla_device()
+            print(f"Using device: TPU ({DEVICE})")
+        except Exception as e:
+            print(f"Failed to get TPU device, falling back to CPU. Error: {e}")
+            DEVICE = torch.device("cpu")
+
+        # 2. LOAD CLASSIFIER MODEL (this part is similar)
+        if "classifier" not in MODEL_CACHE:
+            print("Loading Classifier Model...")
+            classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
+            # The .to(DEVICE) call now sends it to the TPU.
+            classifier_model = AutoModelForSequenceClassification.from_pretrained(
+                "cardiffnlp/twitter-roberta-base-sentiment-latest"
+            ).to(DEVICE)
+            print("Classifier model loaded.")
+            
+            MODEL_CACHE["classifier"] = {
+                'tokenizer': classifier_tokenizer,
+                'model': classifier_model
+            }
+        
+        # 3. LOAD REASONING MODEL (this part is VERY different)
+        if cache_key not in MODEL_CACHE:
+            print(f"Loading Reasoning Model: {selected_model}...")
+            
+            # CRITICAL: REMOVE ALL QUANTIZATION CODE
+            # We must load the full, unquantized model.
+            
+            try:
+                reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
+                reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
+                print(f"Standard model ({selected_model}) loaded successfully to TPU.")
+                
+                MODEL_CACHE[cache_key] = {
+                    'tokenizer': reasoning_tokenizer,
+                    'model': reasoning_model,
+                    'model_name': selected_model
+                }
+            except Exception as e:
+                print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print(f"CRITICAL ERROR: Failed to load {selected_model} onto the TPU.")
+                print(f"This is likely an Out-of-Memory error. The full model is too large.")
+                print(f"Error details: {e}")
+                print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                # Handle the error gracefully, maybe by raising it or setting the model to None
+                raise e # Stop the execution
+
+        print("--- MODEL LOADING COMPLETE ---")
+    
+    # Return the models
+    return {
+        'device': xm.xla_device() if "xla" in str(xm.xla_device()) else torch.device("cpu"),
+        'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
+        'classifier_model': MODEL_CACHE["classifier"]['model'],
+        'reasoning_tokenizer': MODEL_CACHE[cache_key]['tokenizer'],
+        'reasoning_model': MODEL_CACHE[cache_key]['model'],
+        'selected_model': MODEL_CACHE[cache_key]['model_name']
+    }
+
 
 # Flask app initialization
 app = Flask(__name__)
@@ -902,96 +980,6 @@ def generate_fallback_feature_themes(feature_requests):
     
     print(f"Fallback themes generated: {[(name, data['count']) for name, data in themes.items()]}")
     return themes
-"""
-def generate_feature_insights(feature_requests, all_reviews):
-    #Enhanced feature insights generation using LLM.
-    if not feature_requests:
-        print("DEBUG: No feature requests provided to generate_feature_insights")
-        return {}
-    
-    print(f"DEBUG: Analyzing {len(feature_requests)} feature requests with LLM...")
-    print(f"DEBUG: First feature request structure: {type(feature_requests[0]) if feature_requests else 'None'}")
-    print(f"DEBUG: First feature request keys: {list(feature_requests[0].keys()) if feature_requests and isinstance(feature_requests[0], dict) else 'Not a dict'}")
-    
-    # Use LLM to generate themes and insights
-    feature_themes = generate_feature_themes_with_llm(feature_requests)
-    
-    print(f"DEBUG: LLM returned {len(feature_themes)} themes")
-    
-    # Enhance themes with additional metadata
-    for theme_name, theme_data in feature_themes.items():
-        print(f"DEBUG: Processing theme '{theme_name}' with {len(theme_data.get('requests', []))} requests")
-        
-        # Calculate average sentiment for this theme
-        if theme_data.get('requests') and len(theme_data['requests']) > 0:
-            try:
-                # Handle different possible structures of feature requests
-                sentiments = []
-                for req in theme_data['requests']:
-                    if isinstance(req, dict):
-                        if 'sentiment_score' in req:
-                            sentiments.append(req['sentiment_score'])
-                        elif 'review' in req and isinstance(req['review'], dict) and 'sentiment_score' in req['review']:
-                            sentiments.append(req['review']['sentiment_score'])
-                    
-                avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0
-                theme_data['avg_sentiment'] = round(avg_sentiment, 2)
-                
-                # Get sample request texts
-                theme_data['sample_requests'] = []
-                for req in theme_data['requests'][:3]:
-                    # Handle different possible structures
-                    content = ""
-                    if isinstance(req, dict):
-                        if 'content' in req:
-                            content = req['content']
-                        elif 'review' in req and isinstance(req['review'], dict) and 'content' in req['review']:
-                            content = req['review']['content']
-                        else:
-                            content = str(req)
-                    else:
-                        content = str(req)
-                    
-                    sample_text = content[:150] + '...' if len(content) > 150 else content
-                    theme_data['sample_requests'].append({
-                        'review': {'display_content': sample_text},
-                        'content': sample_text
-                    })
-                
-                # Update count to reflect actual mapped requests
-                theme_data['count'] = len(theme_data['requests'])
-                
-                # Determine priority based on count and sentiment
-                if theme_data['count'] >= 5 and avg_sentiment > 0.3:  # Positive sentiment for feature requests
-                    theme_data['priority'] = 'High'
-                elif theme_data['count'] >= 3 and avg_sentiment > 0.0:
-                    theme_data['priority'] = 'Medium'
-                else:
-                    theme_data['priority'] = 'Low'
-                    
-                print(f"DEBUG: Theme '{theme_name}' processed: {theme_data['count']} requests, avg sentiment: {avg_sentiment:.2f}")
-                
-            except Exception as e:
-                print(f"ERROR: Processing theme '{theme_name}': {e}")
-                theme_data['avg_sentiment'] = 0
-                theme_data['sample_requests'] = []
-                theme_data['count'] = 0
-                theme_data['priority'] = 'Low'
-        else:
-            theme_data['avg_sentiment'] = 0
-            theme_data['sample_requests'] = []
-            theme_data['count'] = 0  # Ensure count is 0 if no requests mapped
-            theme_data['priority'] = 'Low'
-    
-    # Remove themes with 0 requests
-    original_count = len(feature_themes)
-    feature_themes = {k: v for k, v in feature_themes.items() if v['count'] > 0}
-    print(f"DEBUG: Removed {original_count - len(feature_themes)} empty themes")
-    
-    print(f"DEBUG: Final feature themes with counts: {[(name, data['count']) for name, data in feature_themes.items()]}")
-    
-    return feature_themes
-"""
 
 def generate_feature_summary_with_llm(feature_themes, total_requests, selected_model=None):
     """Generate an executive summary of feature requests using LLM."""
