@@ -1,0 +1,940 @@
+<!-- templates/results.html -->
+<style>
+    :root {
+        --primary: #3b82f6;
+        --primary-light: #dbeafe;
+        --secondary: #110f38;
+        --secondary-light: #dde1f0;
+        --accent: #f59e0b;
+        --accent-light: #fef3c7;
+        --danger: #ef4444;
+        --danger-light: #fee2e2;
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8fafc;
+        --bg-tertiary: #f1f5f9;
+        --text-primary: #1e293b;
+        --text-secondary: #475569;
+        --text-muted: #64748b;
+        --border: #e2e8f0;
+        --border-light: #f1f5f9;
+        --radius: 8px;
+        --radius-lg: 12px;
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        
+        /* New blue/gray color variables for feature requests */
+        --feature-bg: #f1f5f9;
+        --feature-border: #cbd5e1;
+        --feature-text: #334155;
+        --feature-accent: #3b82f6;
+        --feature-light: #e0f2fe;
+    }
+
+    /* 90% zoom applied to entire page */
+    body {
+        zoom: 0.85;
+    }
+
+    .results-container { 
+        max-width: 1400px; 
+        margin: 0 auto; 
+        padding: 1.5rem; 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; 
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+    }
+    
+    .app-info-card { 
+        background: linear-gradient(135deg, #7c6bd1 0%, #7c6bd1 50%, #7c6bd1 100%); 
+        color: white; 
+        padding: 1.25rem 1.75rem; 
+        border-radius: var(--radius-lg); 
+        margin-bottom: 1.25rem; 
+        box-shadow: var(--shadow-lg);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .app-info-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(45deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+        pointer-events: none;
+    }
+    
+    .app-info-card h2 { 
+        margin: 0 0 0.75rem 0; 
+        font-size: 1.4rem; 
+        font-weight: 700; 
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        position: relative;
+        z-index: 1;
+    }
+    
+    .app-name {
+        background: rgba(255, 255, 255, 0.2);
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        backdrop-filter: blur(10px);
+    }
+    
+    .date-ranges { 
+        display: grid; 
+        grid-template-columns: 1fr 1fr; 
+        gap: 1rem; 
+        position: relative;
+        z-index: 1;
+    }
+    
+    .date-range { 
+        background: rgba(255, 255, 255, 0.15); 
+        padding: 0.75rem 1rem; 
+        border-radius: var(--radius); 
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    
+    .date-range .label { 
+        font-weight: 600; 
+        display: block; 
+        margin-bottom: 0.25rem; 
+        font-size: 0.95rem; 
+        opacity: 0.9; 
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .date-range .value { 
+        font-size: 1.1rem; 
+        font-weight: 700; 
+        display: block; 
+    }
+    
+    .date-range .count { 
+        font-size: 1rem; 
+        opacity: 0.8; 
+        margin-top: 0.25rem; 
+        display: block; 
+    }
+    
+    .sentiment-overview { 
+        display: grid; 
+        grid-template-columns: 1fr 1fr; 
+        gap: 1rem; 
+        margin-bottom: 1.25rem; 
+    }
+    
+    .sentiment-card { 
+        background: var(--bg-primary); 
+        padding: 1rem 1.25rem; 
+        border-radius: var(--radius-lg); 
+        box-shadow: var(--shadow-md); 
+        text-align: center;
+        border: 1px solid var(--border);
+        transition: all 0.2s ease;
+    }
+    
+    .sentiment-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .sentiment-card h3 { 
+        margin: 0 0 0.5rem 0; 
+        color: var(--text-primary); 
+        font-size: 0.9rem; 
+        font-weight: 600; 
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .rating-display { 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        gap: 0.5rem; 
+    }
+    
+    .rating-number { 
+        font-size: 1.75rem; 
+        font-weight: 800; 
+        color: var(--primary); 
+    }
+    
+    .stars { 
+        font-size: 1.1rem; 
+        letter-spacing: 1px; 
+    }
+    
+    .star.full { color: var(--accent); }
+    .star.half { 
+        position: relative; 
+        color: var(--border); 
+    }
+    .star.half::before { 
+        content: '★'; 
+        color: var(--accent); 
+        position: absolute; 
+        left: 0; 
+        width: 50%; 
+        overflow: hidden; 
+    }
+    .star.empty { color: var(--border); }
+    
+    .two-pane-grid { 
+        display: grid; 
+        grid-template-columns: 1fr 1fr; 
+        gap: 1.5rem; 
+        margin-bottom: 1.5rem; 
+    }
+    
+    .period-column { 
+        background: var(--bg-primary); 
+        padding: 1.25rem; 
+        border-radius: var(--radius-lg); 
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border);
+        height: fit-content;
+    }
+    
+    .period-column h3 { 
+        font-size: 1.1rem; 
+        font-weight: 700; 
+        margin-bottom: 0.75rem; 
+        padding-bottom: 0.5rem; 
+        border-bottom: 2px solid var(--primary); 
+        color: var(--text-primary);
+    }
+    
+    .period-column h4 { 
+        font-size: 0.9rem; 
+        font-weight: 600; 
+        margin: 1.25rem 0 0.75rem 0; 
+        color: var(--text-secondary); 
+        letter-spacing: 0.05em;
+    }
+    
+    details { 
+        border: 1px solid var(--border); 
+        border-radius: var(--radius); 
+        margin-bottom: 0.5rem; 
+        background: var(--bg-primary); 
+        transition: all 0.2s ease; 
+    }
+    
+    details[open] { 
+        box-shadow: var(--shadow-sm); 
+        border-color: var(--primary);
+    }
+    
+    summary { 
+        padding: 0.75rem 1rem; 
+        font-weight: 600; 
+        cursor: pointer; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        list-style: none; 
+        transition: background-color 0.2s ease; 
+        font-size: 0.85rem;
+    }
+    
+    summary:hover { 
+        background-color: var(--bg-secondary); 
+    }
+    
+    summary::-webkit-details-marker { display: none; }
+    
+    summary:after { 
+        content: '▼'; 
+        font-size: 0.7rem; 
+        color: var(--text-muted); 
+        transform: rotate(0deg); 
+        transition: transform 0.2s; 
+    }
+    
+    details[open] summary:after { 
+        transform: rotate(180deg); 
+    }
+    
+    .drilldown-content { 
+        border-top: 1px solid var(--border-light); 
+    }
+    
+    .category-summary { 
+        font-size: 0.8rem; 
+        color: var(--text-secondary); 
+        background: var(--bg-secondary); 
+        padding: 0.75rem; 
+        margin: 0.75rem; 
+        border-radius: var(--radius); 
+        border-left: 3px solid var(--primary); 
+        line-height: 1.4;
+    }
+    
+    .sub-topic-list { 
+        padding: 0 1rem 0.75rem 1rem; 
+    }
+    
+    .sub-topic-item { 
+        padding: 0.5rem 0; 
+        border-bottom: 1px solid var(--border-light); 
+    }
+    
+    .sub-topic-item:last-child { 
+        border-bottom: none; 
+    }
+    
+    .sub-topic-header { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        font-size: 0.8rem; 
+    }
+    
+    .sentiment-breakdown { 
+        display: flex; 
+        align-items: center; 
+        gap: 0.5rem; 
+    }
+    
+    .sentiment-breakdown span { 
+        display: flex; 
+        align-items: center; 
+        gap: 0.25rem; 
+        font-weight: 500; 
+        font-size: 0.75rem;
+    }
+    
+    .thumb-icon { 
+        font-size: 0.9rem; 
+    }
+    
+    .proof-review { 
+        border-left: 2px solid var(--border); 
+        margin-top: 0.5rem; 
+        padding-left: 0.75rem; 
+        font-size: 0.75rem; 
+        color: var(--text-secondary); 
+    }
+    
+    .proof-review-header { 
+        font-weight: 600; 
+        color: var(--text-muted); 
+        margin-bottom: 0.25rem; 
+        font-size: 0.7rem;
+    }
+    
+    .proof-review-content { 
+        font-style: italic; 
+        line-height: 1.3;
+    }
+    
+    .insights-section { 
+        background: var(--bg-primary); 
+        padding: 1.5rem; 
+        border-radius: var(--radius-lg); 
+        box-shadow: var(--shadow-md); 
+        margin-bottom: 1.5rem; 
+        border: 1px solid var(--border);
+    }
+    
+    .insights-section h3 { 
+        font-size: 1.15rem; 
+        font-weight: 700; 
+        margin-bottom: 1rem; 
+        color: var(--text-primary); 
+    }
+    
+    .insight-card { 
+        border: 1px solid var(--border); 
+        border-radius: var(--radius); 
+        padding: 1rem; 
+        margin-bottom: 1rem; 
+        background: var(--bg-secondary); 
+        transition: all 0.2s ease;
+    }
+    
+    .insight-card:hover {
+        border-color: var(--primary);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .insight-card h4 { 
+        margin-bottom: 0.75rem; 
+        color: var(--text-primary); 
+        font-size: 0.95rem; 
+        font-weight: 600; 
+    }
+    
+    .insight-content { 
+        color: var(--text-secondary); 
+        line-height: 1.5; 
+        font-size: 0.85rem;
+    }
+    
+    .insight-content ul { 
+        list-style-type: disc;
+        margin-left: 1.5rem;
+        margin-top: 0.5rem;
+        padding-left: 1.25rem; 
+        margin-top: 0.5rem; 
+    }
+    
+    .insight-content li { 
+        margin-bottom: 0.4rem; 
+    }
+    .insight-content strong {
+        display: block;
+        margin-top: 1rem;
+        font-size: 1.05em;
+    }
+
+    /* Updated Feature Requests Styling - Blue/Gray Theme */
+    .feature-requests-card {
+        background: linear-gradient(135deg, var(--feature-bg) 0%, var(--feature-light) 100%);
+        border: 1px solid var(--feature-border);
+        border-radius: var(--radius);
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    .feature-requests-card h4 {
+        color: var(--feature-text);
+        margin-bottom: 0.75rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .feature-requests-card .insight-content {
+        color: var(--feature-text);
+        font-weight: 500;
+        margin-bottom: 1rem;
+    }
+    
+    .feature-theme {
+        background: var(--bg-primary);
+        border: 1px solid var(--feature-border);
+        border-radius: var(--radius);
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .feature-theme-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 0.5rem;
+    }
+    
+    .feature-theme-title {
+        font-weight: 600;
+        color: var(--feature-text);
+        font-size: 0.85rem;
+    }
+    
+    .feature-theme-meta {
+        display: flex;
+        gap: 0.5rem;
+        font-size: 0.7rem;
+    }
+    
+    .priority-badge {
+        padding: 0.15rem 0.5rem;
+        border-radius: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    /* Updated priority badges with blue/gray theme */
+    .priority-high { 
+        background: #e2e8f0; 
+        color: #475569; 
+        border: 1px solid #cbd5e1;
+    }
+    .priority-medium { 
+        background: #dbeafe; 
+        color: #3b82f6; 
+        border: 1px solid #93c5fd;
+    }
+    .priority-low { 
+        background: #f1f5f9; 
+        color: #64748b; 
+        border: 1px solid #e2e8f0;
+    }
+    
+    .request-count {
+        background: var(--feature-accent);
+        color: white;
+        padding: 0.15rem 0.5rem;
+        border-radius: 12px;
+        font-weight: 600;
+    }
+    
+    .feature-summary {
+        font-size: 0.8rem;
+        color: var(--feature-text);
+        line-height: 1.4;
+        margin-bottom: 0.5rem;
+    }
+    
+    .review-card { 
+        border: 1px solid var(--border); 
+        border-radius: var(--radius); 
+        padding: 0.875rem; 
+        background: var(--bg-secondary); 
+        margin-bottom: 0.75rem; 
+    }
+    
+    .review-header { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin-bottom: 0.5rem; 
+    }
+    
+    .review-rating { 
+        display: flex; 
+        gap: 2px; 
+    }
+    
+    .review-rating .star.filled { 
+        color: var(--accent); 
+    }
+    
+    .review-rating .star.empty { 
+        color: var(--border); 
+    }
+    
+    .review-date { 
+        color: var(--text-muted); 
+        font-size: 0.75rem; 
+    }
+    
+    .review-content { 
+        color: var(--text-secondary); 
+        font-style: italic; 
+        font-size: 0.8rem;
+        line-height: 1.4;
+    }
+    
+    .empty-state { 
+        color: var(--text-muted); 
+        font-style: italic; 
+        text-align: center; 
+        padding: 1.5rem; 
+        font-size: 0.85rem;
+    }
+    
+    @media (max-width: 1200px) { 
+        .two-pane-grid { 
+            grid-template-columns: 1fr; 
+        } 
+    }
+    
+    @media (max-width: 768px) { 
+        .results-container { 
+            padding: 1rem; 
+        } 
+        .date-ranges, .sentiment-overview { 
+            grid-template-columns: 1fr; 
+        } 
+    }
+</style>
+
+<div class="results-container">
+        <!-- App Info Header -->
+        <div class="app-info-card">
+            <h2>📱 {{ form_data.app_id }} - Analysis Results</h2>
+            
+        <div class="date-ranges">
+            <div class="date-range present">
+                <span class="label">Present Period:</span>
+                <span class="value">{{ form_data.date_range_1 }}</span>
+                <span class="count">({{ count_present }} reviews: 
+                    <span class="positive-count">{{ analysis_present.praise_reviews|length }} positive</span>, 
+                    <span class="negative-count">{{ analysis_present.attention_reviews|length }} negative</span>)
+                </span>
+            </div>
+            <div class="date-range previous">
+                <span class="label">Previous Period:</span>
+                <span class="value">{{ form_data.date_range_2 }}</span>
+                <span class="count">({{ count_previous }} reviews: 
+                    <span class="positive-count">{{ analysis_previous.praise_reviews|length }} positive</span>, 
+                    <span class="negative-count">{{ analysis_previous.attention_reviews|length }} negative</span>)
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sentiment Overview -->
+    <div class="sentiment-overview">
+        <div class="sentiment-card present">
+            <h3>Present Reviews Sentiment</h3>
+            <div class="rating-display">
+                <span class="rating-number">{{ "%.1f"|format(analysis_present.avg_sentiment_score) }}</span>
+                <div class="stars">
+                    {% set rating = analysis_present.avg_sentiment_score %}
+                    {% for i in range(5) %}
+                        {% if rating >= i + 0.75 %}
+                            <span class="star full">★</span>
+                        {% elif rating >= i + 0.25 %}
+                            <span class="star half">★</span>
+                        {% else %}
+                            <span class="star empty">☆</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="sentiment-card previous">
+            <h3>Previous Reviews Sentiment</h3>
+            <div class="rating-display">
+                <span class="rating-number">{{ "%.1f"|format(analysis_previous.avg_sentiment_score) }}</span>
+                <div class="stars">
+                    {% set rating = analysis_previous.avg_sentiment_score %}
+                    {% for i in range(5) %}
+                        {% if rating >= i + 0.75 %}
+                            <span class="star full">★</span>
+                        {% elif rating >= i + 0.25 %}
+                            <span class="star half">★</span>
+                        {% else %}
+                            <span class="star empty">☆</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Two-Pane Comparison Grid -->
+    <div class="two-pane-grid">
+        <!-- Present Period -->
+        <div class="period-column">
+            <h3>Present Period Topics</h3>
+            <h4>Pain Points (% = fraction of total comments that are Negative)</h4>
+            {% for main_cat, data in analysis_present.pain_points.items() %}
+            <details>
+                <summary>
+                    <span>{{ main_cat }}</span>
+                    <div class="sentiment-breakdown">
+                        <span><span class="thumb-icon">👍</span> {{ data.main_pos }}</span>
+                        <span>
+                                <span class="thumb-icon">👎</span> {{ data.main_neg }}
+                                {% if analysis_present.total_review_count > 0 %}
+                                <small class="percentage">({{ "%.1f"|format(data.main_neg * 100 / analysis_present.total_review_count) }}%)</small>
+                                {% endif %}
+                            </span>
+                    </div>
+                </summary>
+                <div class="drilldown-content">
+                    {% if data.summary %}
+                    <div class="category-summary">{{ data.summary }}</div>
+                    {% endif %}
+                    <div class="sub-topic-list">
+                        {% for sub_cat, sub_data in data.sub_topics.items() if sub_data.neg > 0 %}
+                        <div class="sub-topic-item">
+                            <div class="sub-topic-header">
+                                <span>{{ sub_cat }}</span>
+                                <div class="sentiment-breakdown">
+                                    <span><span class="thumb-icon">👍</span> {{ sub_data.pos }}</span>
+                                    <span><span class="thumb-icon">👎</span> {{ sub_data.neg }}</span>
+                                </div>
+                            </div>
+                            {% if sub_data.negative_reviews_for_display %}
+                            <div class="proof-reviews-container">
+                                {% for review in sub_data.negative_reviews_for_display %}
+                                <div class="proof-review">
+                                    <div class="proof-review-header">{{ review.at.strftime('%Y-%m-%d') }} | {{ review.score }}/5 ★</div>
+                                    <div class="proof-review-content">"{{ review.display_content }}"</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </details>
+            {% else %}
+            <p class="empty-state">No significant pain points found.</p>
+            {% endfor %}
+            
+            <h4>Praise Points</h4>
+            {% for main_cat, data in analysis_present.praise_points.items() %}
+            <details>
+                <summary>
+                    <span>{{ main_cat }}</span>
+                    <div class="sentiment-breakdown">
+                        <span><span class="thumb-icon">👍</span> {{ data.main_pos }}</span>
+                        <span><span class="thumb-icon">👎</span> {{ data.main_neg }}</span>
+                    </div>
+                </summary>
+                <div class="drilldown-content">
+                    {% if data.positive_summary %}
+                    <div class="category-summary">{{ data.positive_summary }}</div>
+                    {% endif %}
+                    <div class="sub-topic-list">
+                        {% for sub_cat, sub_data in data.sub_topics.items() if sub_data.pos > 0 %}
+                        <div class="sub-topic-item">
+                            <div class="sub-topic-header">
+                                <span>{{ sub_cat }}</span>
+                                <div class="sentiment-breakdown">
+                                    <span><span class="thumb-icon">👍</span> {{ sub_data.pos }}</span>
+                                    <span><span class="thumb-icon">👎</span> {{ sub_data.neg }}</span>
+                                </div>
+                            </div>
+                            {% if sub_data.positive_reviews_for_display %}
+                            <div class="proof-reviews-container">
+                                {% for review in sub_data.positive_reviews_for_display %}
+                                <div class="proof-review">
+                                    <div class="proof-review-header">{{ review.at.strftime('%Y-%m-%d') }} | {{ review.score }}/5 ★</div>
+                                    <div class="proof-review-content">"{{ review.display_content }}"</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </details>
+            {% else %}
+            <p class="empty-state">No significant praise points found.</p>
+            {% endfor %}
+        </div>  
+        <!-- Previous Period -->
+        <div class="period-column">
+            <h3>Previous Period Topics</h3>
+            <h4>Pain Points (% = fraction of total comments that are Negative)</h4>
+            {% for main_cat, data in analysis_previous.pain_points.items() %}
+            <details>
+                <summary>
+                    <span>{{ main_cat }}</span>
+                    <div class="sentiment-breakdown">
+                        <span><span class="thumb-icon">👍</span> {{ data.main_pos }}</span>
+                        <span>
+                                <span class="thumb-icon">👎</span> {{ data.main_neg }}
+                                {% if analysis_previous.total_review_count > 0 %}
+                                <small class="percentage">({{ "%.1f"|format(data.main_neg * 100 / analysis_previous.total_review_count) }}%)</small>
+                                {% endif %}
+                            </span>
+                    </div>
+                </summary>
+                <div class="drilldown-content">
+                    {% if data.summary %}
+                    <div class="category-summary">{{ data.summary }}</div>
+                    {% endif %}
+                    <div class="sub-topic-list">
+                        {% for sub_cat, sub_data in data.sub_topics.items() if sub_data.neg > 0 %}
+                        <div class="sub-topic-item">
+                            <div class="sub-topic-header">
+                                <span>{{ sub_cat }}</span>
+                                <div class="sentiment-breakdown">
+                                    <span><span class="thumb-icon">👍</span> {{ sub_data.pos }}</span>
+                                    <span><span class="thumb-icon">👎</span> {{ sub_data.neg }}</span>
+                                </div>
+                            </div>
+                            {% if sub_data.negative_reviews_for_display %}
+                            <div class="proof-reviews-container">
+                                {% for review in sub_data.negative_reviews_for_display %}
+                                <div class="proof-review">
+                                    <div class="proof-review-header">{{ review.at.strftime('%Y-%m-%d') }} | {{ review.score }}/5 ★</div>
+                                    <div class="proof-review-content">"{{ review.display_content }}"</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </details>
+            {% else %}
+            <p class="empty-state">No significant pain points found.</p>
+            {% endfor %}
+            
+            <h4>Praise Points</h4>
+            {% for main_cat, data in analysis_present.praise_points.items() %}
+            <details>
+                <summary>
+                    <span>{{ main_cat }}</span>
+                    <div class="sentiment-breakdown">
+                        <span><span class="thumb-icon">👍</span> {{ data.main_pos }}</span>
+                        <span><span class="thumb-icon">👎</span> {{ data.main_neg }}</span>
+                    </div>
+                </summary>
+                <div class="drilldown-content">
+                    {% if data.positive_summary %}
+                    <div class="category-summary">{{ data.positive_summary }}</div>
+                    {% endif %}
+                    <div class="sub-topic-list">
+                        {% for sub_cat, sub_data in data.sub_topics.items() if sub_data.pos > 0 %}
+                        <div class="sub-topic-item">
+                            <div class="sub-topic-header">
+                                <span>{{ sub_cat }}</span>
+                                <div class="sentiment-breakdown">
+                                    <span><span class="thumb-icon">👍</span> {{ sub_data.pos }}</span>
+                                    <span><span class="thumb-icon">👎</span> {{ sub_data.neg }}</span>
+                                </div>
+                            </div>
+                            {% if sub_data.positive_reviews_for_display %}
+                            <div class="proof-reviews-container">
+                                {% for review in sub_data.positive_reviews_for_display %}
+                                <div class="proof-review">
+                                    <div class="proof-review-header">{{ review.at.strftime('%Y-%m-%d') }} | {{ review.score }}/5 ★</div>
+                                    <div class="proof-review-content">"{{ review.display_content }}"</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </details>
+            {% else %}
+            <p class="empty-state">No significant praise points found.</p>
+            {% endfor %}
+        </div> 
+    </div>        
+    
+    <!-- Key Insights Summary -->
+    <div class="insights-section">
+        <h3>🔍 Key Insights Summary</h3>
+        <!-- THE FIX: Display the AI-Generated Product Brief -->
+        <div class="insight-card feature-summary">
+            <h4>💡 AI-Generated Product Brief</h4>
+            <div class="insight-content">{{ insights.ai_summary | safe }}</div>
+        </div>
+        
+        <!-- THE FIX: Display the Themed Feature Requests -->
+        {% if insights.feature_ideas %}
+        <div class="insight-card feature-requests-card">
+            <h4>🚀 New Feature Requests</h4>
+            {% for theme_name, theme_data in insights.feature_ideas.items() %}
+            <div class="feature-theme">
+                <div class="feature-theme-header">
+                    <div class="feature-theme-title">{{ theme_name }}</div>
+                    <div class="feature-theme-meta">
+                        <span class="request-count">{{ theme_data.count }} requests</span>
+                        <span class="priority-badge priority-{{ theme_data.urgency|lower }}">{{ theme_data.urgency }}</span>
+                    </div>
+                </div>
+                <div class="feature-summary">{{ theme_data.summary }}</div>
+                {% if theme_data.requests %}
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">
+                    <strong>Sample requests:</strong>
+                    {% for sample_req in theme_data.requests %}
+                    <div class="proof-review">"{{ sample_req.review.display_content }}"</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+
+        <div class="insight-card persisting">
+            <h4>⚠️ Persisting Problems</h4>
+            <div class="insight-content">
+                {% if insights.persisting_problems %}
+                <p>These issues appear in both time periods:</p>
+                <ul>
+                    {% for category, data in insights.persisting_problems.items() %}
+                    <li>
+                        <strong>{{ category }}: </strong> {{ data.count }} negative mentions
+                        {% for review in data.reviews %}
+                        <div class="proof-review">"{{ review.display_content }}"</div>
+                        {% endfor %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No significant pain points carried over.</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="insight-card new-issues">
+            <h4>🆕 Newly Surfaced Problems</h4>
+            <div class="insight-content">
+                {% if insights.newly_surfaced_problems %}
+                <p>These issues appeared in the recent period:</p>
+                <ul>
+                    {% for category, data in insights.newly_surfaced_problems.items() %}
+                    <li>
+                        <strong>{{ category }}</strong>: {{ data.count }} negative mentions
+                        {% for review in data.reviews %}
+                        <div class="proof-review">"{{ review.display_content }}"</div>
+                        {% endfor %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No new significant issues arose.</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="insight-card resolved">
+            <h4>✅ Resolved Problems & Praise</h4>
+            <div class="insight-content">
+                {% if insights.resolved_problems %}
+                <p>Negative mentions for these issues decreased significantly:</p>
+                <ul>
+                    {% for category, data in insights.resolved_problems.items() %}
+                    <li>
+                        <strong>{{ category }}</strong>: Decreased from {{ data.prev }} to {{ data.curr }} negative mentions.
+                        {% for review in data.reviews %}
+                        <div class="proof-review">"{{ review.display_content }}"</div>
+                        {% endfor %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No previously significant issues appear to have been resolved.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Critical Reviews -->
+    <div class="insights-section">
+        <h3>🗣️ Top Critical Reviews (Present Period)</h3>
+        {% for review in analysis_present.attention_reviews[:10] %}
+        <div class="review-card">
+            <div class="review-header">
+                <div class="review-rating">
+                    {% for i in range(5) %}
+                        {% if i < review.score %}
+                            <span class="star filled">★</span>
+                        {% else %}
+                            <span class="star empty">☆</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                <span class="review-date">{{ review.at.strftime('%Y-%m-%d') if review.at else 'Unknown date' }}</span>
+            </div>
+            <div class="review-content">{{ review.content }}</div>
+        </div>
+        {% else %}
+        <p class="empty-state">No critical reviews were found in this period.</p>
+        {% endfor %}
+    </div>
+    
+</div>	

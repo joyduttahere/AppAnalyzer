@@ -319,126 +319,49 @@ TOPIC_CATEGORIES = PAIN_POINT_CATEGORIES
 # 2. LAZY LOADING FOR AI MODELS
 # ==============================================================================
 MODELS = None # Global placeholder for our models
-# Global cache for models - now stores multiple models
-MODEL_CACHE = {}
 
-def get_models(selected_model=None):
-    """
-    Initializes and returns the AI models, loading them only once per model type.
-    Now supports dynamic model selection.
-    """
-    global MODEL_CACHE
-    
-    # Default to Mistral if no model specified
-    if selected_model is None:
-        selected_model = "mistralai/Mistral-7B-Instruct-v0.3"
-    
-    # Check if this specific model combination is already cached
-    cache_key = f"reasoning_{selected_model}"
-    
-    if "classifier" not in MODEL_CACHE or cache_key not in MODEL_CACHE:
-        print(f"--- LOADING MODELS: {selected_model} ---")
+def get_models():
+    """Initializes and returns the AI models, loading them only once."""
+    global MODELS
+    if MODELS is None:
+        print("--- LAZY LOADING MODELS (ONE-TIME SETUP) ---")
         DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {DEVICE}")
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True, 
+            bnb_4bit_quant_type="nf4", 
+            bnb_4bit_compute_dtype=torch.bfloat16
+        )
         
-        # Load classifier model once (same for all requests)
-        if "classifier" not in MODEL_CACHE:
-            print("Loading Classifier Model...")
-            classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-            classifier_model = AutoModelForSequenceClassification.from_pretrained(
-                "cardiffnlp/twitter-roberta-base-sentiment-latest"
-            ).to(DEVICE)
-            print("Classifier model loaded.")
-            
-            MODEL_CACHE["classifier"] = {
-                'tokenizer': classifier_tokenizer,
-                'model': classifier_model
-            }
+        print("Loading Classifier Model...")
+        classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
+        classifier_model = AutoModelForSequenceClassification.from_pretrained(
+            "cardiffnlp/twitter-roberta-base-sentiment-latest"
+        ).to(DEVICE)  # Only move non-quantized models
+        print("Classifier model loaded.")
+
+        print(f"Loading Reasoning Model: microsoft/DialoGPT-medium...") #mistralai/Mistral-7B-Instruct-v0.3...")
+        reasoning_tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium") #mistralai/Mistral-7B-Instruct-v0.3")
         
-        # Load reasoning model based on selection
-        if cache_key not in MODEL_CACHE:
-            print(f"Loading Reasoning Model: {selected_model}...")
-            reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
-            
-            # Different loading strategies based on model type
-            if "mistral" in selected_model.lower():
-                # Use quantization for large Mistral models
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True, 
-                    bnb_4bit_quant_type="nf4", 
-                    bnb_4bit_compute_dtype=torch.bfloat16
-                )
-                reasoning_model = AutoModelForCausalLM.from_pretrained(
-                    selected_model, 
-                    quantization_config=quantization_config, 
-                    device_map="auto"
-                )
-                # No .to(DEVICE) for quantized models
-                print(f"Quantized reasoning model ({selected_model}) loaded successfully.")
-                
-            elif "openchat" in selected_model.lower():
-                # OpenChat models - use quantization if available, otherwise standard loading
-                try:
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True, 
-                        bnb_4bit_quant_type="nf4", 
-                        bnb_4bit_compute_dtype=torch.bfloat16
-                    )
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(
-                        selected_model, 
-                        quantization_config=quantization_config, 
-                        device_map="auto"
-                    )
-                    print(f"Quantized OpenChat model ({selected_model}) loaded successfully.")
-                except Exception as e:
-                    print(f"Quantization failed for {selected_model}, falling back to standard loading: {e}")
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                    print(f"Standard OpenChat model ({selected_model}) loaded successfully.")
-                    
-            elif "dialogpt" in selected_model.lower():
-                # DialoGPT models - lighter, standard loading
-                reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                print(f"DialoGPT model ({selected_model}) loaded successfully.")
-                
-            else:
-                # Default loading strategy for unknown models
-                try:
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                    print(f"Standard model ({selected_model}) loaded successfully.")
-                except Exception as e:
-                    print(f"Error loading {selected_model}: {e}")
-                    # Fallback to Mistral if the selected model fails
-                    print("Falling back to Mistral 7B...")
-                    selected_model = "mistralai/Mistral-7B-Instruct-v0.3"
-                    cache_key = f"reasoning_{selected_model}"
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True, 
-                        bnb_4bit_quant_type="nf4", 
-                        bnb_4bit_compute_dtype=torch.bfloat16
-                    )
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(
-                        selected_model, 
-                        quantization_config=quantization_config, 
-                        device_map="auto"
-                    )
-            
-            MODEL_CACHE[cache_key] = {
-                'tokenizer': reasoning_tokenizer,
-                'model': reasoning_model,
-                'model_name': selected_model
-            }
+        # For quantized models, don't use .to(DEVICE) - device_map="auto" handles this
+        reasoning_model = AutoModelForCausalLM.from_pretrained(
+            "microsoft/DialoGPT-medium", #mistralai/Mistral-7B-Instruct-v0.3", 
+            quantization_config=quantization_config, 
+            device_map="auto"
+        )
+        # Do NOT call .to(DEVICE) on quantized models
         
+        print("Reasoning model loaded successfully.")
+        
+        MODELS = {
+            'device': DEVICE, 
+            'classifier_tokenizer': classifier_tokenizer, 
+            'classifier_model': classifier_model,
+            'reasoning_tokenizer': reasoning_tokenizer, 
+            'reasoning_model': reasoning_model
+        }
         print("--- MODEL LOADING COMPLETE ---")
-    
-    # Return the models
-    return {
-        'device': "cuda" if torch.cuda.is_available() else "cpu",
-        'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
-        'classifier_model': MODEL_CACHE["classifier"]['model'],
-        'reasoning_tokenizer': MODEL_CACHE[cache_key]['tokenizer'],
-        'reasoning_model': MODEL_CACHE[cache_key]['model'],
-        'selected_model': MODEL_CACHE[cache_key]['model_name']
-    }
+    return MODELS
 
 # Flask app initialization
 app = Flask(__name__)
@@ -472,15 +395,9 @@ def force_close_connection(func):
     return wrapper
 
 def clear_gpu_cache():
-    """Enhanced GPU cache clearing with better memory management."""
-    if torch.cuda.is_available():
+    models = get_models()
+    if models['device'] == "cuda":
         torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-        # Optional: Print memory usage after cleanup
-        if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated() / 1024**3
-            reserved = torch.cuda.memory_reserved() / 1024**3
-            print(f"GPU Memory after cleanup - Allocated: {allocated:.1f}GB, Reserved: {reserved:.1f}GB")
 
 def format_installs(install_str):
     """Format installation count strings."""
@@ -1042,9 +959,9 @@ Create a concise 3-4 sentence executive summary that:
         print(f"Error generating feature summary: {e}")
         return f"Analyzed {total_requests} feature requests across {len(feature_themes)} main themes. Key areas include {', '.join(list(feature_themes.keys())[:2])}."
 
-def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    """Generate a 60-word summary for a category based on reviews with model selection."""
-    models = get_models(selected_model)  # Pass the selected model
+def generate_category_summary(reviews, category_name, is_positive=False):
+    """Generate a 60-word summary for a category based on reviews."""
+    models = get_models() # Get the models when needed
     
     if not reviews:
         return "No reviews available for analysis."
@@ -1128,9 +1045,9 @@ Here are the user reviews:
         print(f"Error generating LLM summary: {e}")
         return "Unable to generate AI summary at this time."
 
-def analyze_reviews_roberta(review_list, selected_model=None):
-    """Analyze reviews using RoBERTa sentiment analysis with dynamic model selection."""
-    models = get_models(selected_model)  # Pass the selected model
+def analyze_reviews_roberta(review_list):
+    """Analyze reviews using RoBERTa sentiment analysis."""
+    models = get_models()
     
     if not review_list:
         return {
@@ -1142,9 +1059,6 @@ def analyze_reviews_roberta(review_list, selected_model=None):
             'praise_reviews': [], 
             'total_review_count': 0
         }
-    
-    # Rest of the function remains the same...
-    # [Keep all the existing logic but models is now loaded with the selected model]
     
     # THE FIX: Filter out reviews with empty or invalid content at the very beginning
     valid_reviews = [r for r in review_list if r and isinstance(r.get('content'), str) and r.get('content').strip()]
@@ -1162,10 +1076,7 @@ def analyze_reviews_roberta(review_list, selected_model=None):
     sentiments = []
     batch_size = 16
 
-    print(f"Analyzing sentiment with model: {models.get('selected_model', 'Unknown')}...")
-    
-    # [Rest of the function continues exactly as before...]
-    # [All the existing sentiment analysis logic remains unchanged]
+    print("Analyzing sentiment...")
     
     # Process reviews in batches
     for i in range(0, len(texts), batch_size):
@@ -1176,9 +1087,6 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         scores = outputs.logits.softmax(dim=-1).cpu().numpy()
         sentiments.extend(scores)
         clear_gpu_cache()
-    
-    # [Continue with all existing logic...]
-    # [The rest of the function remains exactly the same]
     
     # Apply sentiment scores with enhanced detection
     for review, score in zip(valid_reviews, sentiments):
@@ -1207,9 +1115,6 @@ def analyze_reviews_roberta(review_list, selected_model=None):
                 
         review['sentiment_score'] = final_score
         review['display_content'] = review['content'][:250] + "..." if len(review['content']) > 250 else review['content']
-    
-    # [Continue with all existing category analysis logic...]
-    # [All the rest remains exactly the same...]
     
     # IMPROVED: More lenient thresholds for positive/negative classification
     POSITIVE_THRESHOLD = 0.1  # Lower threshold to catch more positive reviews
@@ -1284,9 +1189,9 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         positive_summary_reviews.sort(key=lambda r: r['sentiment_score'], reverse=True)
         
         if data['main_neg'] >= 3:
-            data['summary'] = generate_category_summary(negative_summary_reviews, main_cat, is_positive=False, selected_model=selected_model)
+            data['summary'] = generate_category_summary(negative_summary_reviews, main_cat, is_positive=False)
         if data['main_pos'] >= 3:
-            data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True, selected_model=selected_model)
+            data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True)
 
     pain_points = {k: v for k, v in category_mentions.items() if v['main_neg'] > v['main_pos'] and v['main_neg'] > 0}
     praise_points = {k: v for k, v in category_mentions.items() if v['main_pos'] > v['main_neg'] and v['main_pos'] > 0}
@@ -1332,18 +1237,15 @@ def find_proof_reviews(reviews, category, limit=3):
     
     return proof
 
-def generate_structured_insights(analysis_present, analysis_previous, reviews_present_all, selected_model=None):
-    """Generate structured insights comparing present and previous analysis with model selection."""
+def generate_structured_insights(analysis_present, analysis_previous, reviews_present_all):
+    """Generate structured insights comparing present and previous analysis."""
     
     # Generate AI summary of critical reviews
-    feature_summary = summarize_with_llm(analysis_present['attention_reviews'], selected_model)
+    feature_summary = summarize_with_llm(analysis_present['attention_reviews'])
     print("###")
     print(feature_summary)
     pp_present = analysis_present['pain_points']
     pp_previous = analysis_previous['pain_points']
-    
-    # [Rest of the function remains the same...]
-    # [All existing logic continues unchanged...]
     
     # Introduce a significance threshold
     significance_threshold = max(2, analysis_present.get('total_review_count', 100) // 50)
@@ -1389,7 +1291,7 @@ def generate_structured_insights(analysis_present, analysis_previous, reviews_pr
     if feature_requests:
         print("Generating feature themes with LLM...")
         # 2. Use the LLM to generate themes from these requests
-        feature_themes = generate_feature_themes_with_llm(feature_requests, selected_model)
+        feature_themes = generate_feature_themes_with_llm(feature_requests)
     
     # 4. Correctly add the parsed themes to the final insights object
     return {
@@ -1505,7 +1407,7 @@ def search_apps_route():
 
 @app.route('/analyze', methods=['POST'])
 def analyze_route():
-    """Handle analysis requests with comprehensive error handling and model selection."""
+    """Handle analysis requests with comprehensive error handling."""
     try:
         print("Starting analysis...")
         
@@ -1513,9 +1415,6 @@ def analyze_route():
         app_id = data.get('app_id')
         date_range_1_str = data.get('date_range_1')
         date_range_2_str = data.get('date_range_2')
-        selected_model = data.get('ai_model', 'mistralai/Mistral-7B-Instruct-v0.3')  # NEW: Get selected model
-        
-        print(f"Selected AI Model: {selected_model}")
         
         # Parse date ranges
         s1, e1 = parse_date_range_string(date_range_1_str)
@@ -1541,17 +1440,16 @@ def analyze_route():
         ]
 
         print("Analyzing present reviews...")
-        analysis_present = analyze_reviews_roberta(reviews_present_all, selected_model)  # NEW: Pass model
+        analysis_present = analyze_reviews_roberta(reviews_present_all)
         
         print("Analyzing previous reviews...")
-        analysis_previous = analyze_reviews_roberta(reviews_previous_all, selected_model)  # NEW: Pass model
+        analysis_previous = analyze_reviews_roberta(reviews_previous_all)
         
         print("Generating insights...")
         insights = generate_structured_insights(
             analysis_present, 
             analysis_previous, 
-            reviews_present_all,
-            selected_model  # NEW: Pass model to insights
+            reviews_present_all
         )
                 
         print("Rendering results...")
@@ -1562,8 +1460,7 @@ def analyze_route():
             insights=insights,
             count_present=len(reviews_present_all),
             count_previous=len(reviews_previous_all),
-            form_data=data,
-            selected_model=selected_model  # NEW: Pass to template
+            form_data=data
         )
         
         return jsonify({'html': html_result})

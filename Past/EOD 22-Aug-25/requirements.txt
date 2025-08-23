@@ -1,0 +1,40 @@
+# Web Framework
+Flask==3.0.3
+gunicorn # The production web server
+gevent   # NEW: The asynchronous worker for Gunicorn
+
+# Google Play Scraper
+google-play-scraper==1.2.6
+
+# NLP Libraries (for placeholder analysis)
+nltk==3.8.1
+spacy==3.7.4
+
+# Library to load .env files for proxy settings
+python-dotenv==1.0.1
+
+# spaCy requires a model to be downloaded separately.
+# After installing these requirements, run:
+# python -m spacy download en_core_web_sm
+
+
+# python -c "import nltk; nltk.download('vader_lexicon')" to install nltk
+# python -m spacy download en_core_web_sm
+
+# NEW: Deep Learning Libraries for RoBERTa
+# Hugging Face Transformers
+transformers==4.41.2
+# PyTorch (CPU version by default, will use CUDA if available)
+torch==2.3.0
+
+accelerate
+
+# NEW: Required dependencies for modern tokenizers (like Mistral/Llama)
+sentencepiece
+protobuf
+
+# NEW: Library for model quantization (memory saving)
+bitsandbytes
+markdown2
+pandas
+openpyxl
