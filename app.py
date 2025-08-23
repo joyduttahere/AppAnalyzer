@@ -607,9 +607,9 @@ def identify_feature_requests(review_list):
     print(f"Identified {len(feature_requests)} constructive feature requests (excluding negative reviews)")
     return feature_requests
 
-def generate_feature_themes_with_llm(feature_requests):
+def generate_feature_themes_with_llm(feature_requests, selected_model=None):
     """Use LLM to generate themes and summaries for feature requests."""
-    models = get_models()
+    models = get_models(selected_model)
     print("Generating LLM Response from feature requests:")
     if not feature_requests:
         print("DEBUG: No feature requests provided to generate_feature_themes_with_llm")
@@ -993,9 +993,9 @@ def generate_feature_insights(feature_requests, all_reviews):
     return feature_themes
 """
 
-def generate_feature_summary_with_llm(feature_themes, total_requests):
+def generate_feature_summary_with_llm(feature_themes, total_requests, selected_model=None):
     """Generate an executive summary of feature requests using LLM."""
-    models = get_models()
+    models = get_models(selected_model)
     
     if not feature_themes:
         return "No constructive feature requests found in the analyzed reviews."
@@ -1043,9 +1043,7 @@ Create a concise 3-4 sentence executive summary that:
         return f"Analyzed {total_requests} feature requests across {len(feature_themes)} main themes. Key areas include {', '.join(list(feature_themes.keys())[:2])}."
 
 def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    """Generate a 60-word summary for a category based on reviews with model selection."""
-    models = get_models(selected_model)  # Pass the selected model
-    
+    models = get_models(selected_model) # Pass the model name here
     if not reviews:
         return "No reviews available for analysis."
     
@@ -1081,9 +1079,8 @@ Here are the user reviews:
         print(f"Error generating category summary: {e}")
         return f"Analysis of {category_name} feedback from user reviews."
 
-def summarize_with_llm(reviews):
-    """Generate AI-powered summary of reviews using the reasoning model."""
-    models = get_models()
+def summarize_with_llm(reviews, selected_model=None):
+    models = get_models(selected_model) # Pass the model name here
     
     if not reviews:
         return "No critical reviews available to generate a summary."
@@ -1333,9 +1330,7 @@ def find_proof_reviews(reviews, category, limit=3):
     return proof
 
 def generate_structured_insights(analysis_present, analysis_previous, reviews_present_all, selected_model=None):
-    """Generate structured insights comparing present and previous analysis with model selection."""
-    
-    # Generate AI summary of critical reviews
+    # This call now correctly passes the parameter
     feature_summary = summarize_with_llm(analysis_present['attention_reviews'], selected_model)
     print("###")
     print(feature_summary)
