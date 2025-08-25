@@ -1083,19 +1083,20 @@ def generate_category_summary(reviews, category_name, is_positive=False, selecte
         return "No reviews available for analysis."
     
     # Limit reviews for summary to prevent token overflow
-    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:8]])  # Reduced to 8
+    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:20]])  # Reduced to 8
     sentiment_type = "positive feedback" if is_positive else "user complaints"
     
     # Better prompts for different models
     if "dialo" in models['selected_model'].lower():
         # DialoGPT works better with conversational prompts
-        prompt = f"Analyze {sentiment_type} about {category_name}:\n{review_texts}\nSummary:"
+        prompt = f"[INST] **Analyze {sentiment_type} about {category_name}:\n{review_texts}\n [/INST] **Category Summary:**"
+
     else:
         # For other models, use instruction format
-        prompt = f"""<s>[INST] Analyze these {sentiment_type} about "{category_name}". Write a concise 60-word summary of the main themes.
+        prompt = f"""<s>[INST] Analyze these {sentiment_type} about "{category_name}". Write a concise 300-word summary of the main themes.
 Here are the user reviews:
 {review_texts} [/INST]
-Summary: """
+**Category Summary:**"""
     
     try:
         # Use the existing generate_response function from your code
@@ -1107,20 +1108,17 @@ Summary: """
         )
         
         # Clean up the response
-        if "[/INST]" in summary:
-            summary = summary.split("[/INST]")[-1].strip()
-        if "Summary:" in summary:
-            summary = summary.split("Summary:")[-1].strip()
-        
-        # Remove any extra formatting
-        summary = summary.replace("**Key Summary**", "").strip()
+        if "**Category Summary:**" in response_text:
+            summary = response_text.split("**Category Summary:**")[-1].strip()
+        else:
+            summary = response_text.split("[/INST]")[-1].strip()
         
         # Ensure the summary isn't empty
-        if not summary or len(summary) < 10:
+        if not summary or len(summary) < 15:
             return f"Users mention issues with {category_name} functionality and features."
         
         print(f"Generated summary for {category_name}: {summary[:100]}...")
-        return summary
+        return summary.replace("[/INST]", "").strip()
         
     except Exception as e:
         print(f"Error generating category summary for {category_name}: {e}")
@@ -1139,13 +1137,14 @@ def summarize_with_llm(reviews, selected_model=None):
     
     # Better prompts for different models
     if "dialo" in models['selected_model'].lower():
-        prompt = f"""Analyze these user complaints and identify top 3 critical issues:
+        prompt = f"""<s>[INST] Analyze these user complaints and identify top 3 critical issues:
 {review_texts}
 
 Product Brief:
 1. **Issue 1**: 
 2. **Issue 2**: 
-3. **Issue 3**: """
+3. **Issue 3**: [/INST]
+*****Product Development Brief:**"""
     else:
         prompt = f"""<s>[INST] You are a Senior Product Analyst creating a product development brief.
 Your task is to analyze the following user reviews and identify the top 2-3 most critical themes.
@@ -1156,9 +1155,7 @@ For each theme:
 
 Here are the user reviews:
 {review_texts} [/INST]
-
-**Product Development Brief**
-
+**Product Development Brief:**
 """
     
     try:
@@ -1173,7 +1170,7 @@ Here are the user reviews:
         # Clean up the response
         if "[/INST]" in summary:
             summary = summary.split("[/INST]")[-1].strip()
-        if "**Product Development Brief**" in summary:
+        if "**Product Development Brief:**" in summary:
             summary = summary.split("**Product Development Brief**")[-1].strip()
         
         # Convert to HTML
