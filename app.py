@@ -1,5 +1,6 @@
 # BrandManager app.py
-# Version 2.5 - With TPU Connection
+# Version 2.6 - With response_text defined and better prompt
+
 import os
 import ssl
 import re
@@ -772,7 +773,7 @@ def generate_feature_themes_with_llm(feature_requests, selected_model=None):
     print(f"DEBUG: Prepared {len(request_texts)} request texts for LLM")
     
     prompt = f"""<s>[INST] You are a Senior Product Manager analyzing user feature requests.
-Your task is to analyze the following feature requests and identify the main themes/categories.
+Your task is to analyze the following feature requests in 400 words. identify the main themes/categories and summarize. 
 
 For each theme you identify:
 1. Create a clear, descriptive theme name (e.g., "Data Export & Backup", "User Interface Customization", "Integration & Connectivity")
@@ -784,7 +785,7 @@ Here are the feature requests:
 {combined_requests}
 
 Please format your response as:
-**Theme Name**: [Request numbers: 1, 3, 5]
+**Theme Name**: App Interface [Request count: 3]
 Summary: [2-3 sentence description]
 Urgency: [High/Medium/Low]
 
@@ -1041,7 +1042,7 @@ def generate_feature_summary_with_llm(feature_themes, total_requests, selected_m
         print(f"**{theme_name}** ({theme_data['count']} requests, {theme_data.get('priority', 'Medium')} priority): {theme_data['summary']}")
     themes_text = "\n".join(theme_summaries)
     
-    prompt = f"""<s>[INST] You are a Senior Product Manager creating an executive summary of user feature requests.
+    prompt = f"""<s>[INST] You are a Senior Product Manager creating an executive summary of user feature requests in 400 words.
 
 Based on the analysis of {total_requests} feature requests, here are the identified themes:
 
@@ -1089,7 +1090,7 @@ def generate_category_summary(reviews, category_name, is_positive=False, selecte
     # Better prompts for different models
     if "dialo" in models['selected_model'].lower():
         # DialoGPT works better with conversational prompts
-        prompt = f"[INST] **Analyze {sentiment_type} about {category_name}:\n{review_texts}\n [/INST] **Category Summary:**"
+        prompt = f"[INST] **Analyze {sentiment_type} about {category_name}:\n{review_texts}\n in 300 words [/INST] **Category Summary:**"
 
     else:
         # For other models, use instruction format
@@ -1100,7 +1101,7 @@ Here are the user reviews:
     
     try:
         # Use the existing generate_response function from your code
-        summary = generate_response(
+        response_text = generate_response(
             models['reasoning_model'], 
             models['reasoning_tokenizer'], 
             prompt, 
@@ -1137,7 +1138,7 @@ def summarize_with_llm(reviews, selected_model=None):
     
     # Better prompts for different models
     if "dialo" in models['selected_model'].lower():
-        prompt = f"""<s>[INST] Analyze these user complaints and identify top 3 critical issues:
+        prompt = f"""<s>[INST] Analyze these user complaints in 400 words. identify top 3 critical issues:
 {review_texts}
 
 Product Brief:
@@ -1147,7 +1148,7 @@ Product Brief:
 *****Product Development Brief:**"""
     else:
         prompt = f"""<s>[INST] You are a Senior Product Analyst creating a product development brief.
-Your task is to analyze the following user reviews and identify the top 2-3 most critical themes.
+Your task is to analyze the following user reviews in 300 words and identify the top 2-3 most critical themes.
 For each theme:
 1. Create a clear, bolded title (e.g., **1. Customer Support Issues**).
 2. Write one sentence explaining the core problem.
