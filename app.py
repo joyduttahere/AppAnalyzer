@@ -1532,28 +1532,36 @@ def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
         # Set pad_token_id if not already set
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
-            config['pad_token_id'] = tokenizer.eos_token_id
         
-        # Tokenize input with proper parameters
+        # Always set pad_token_id in config
+        config['pad_token_id'] = tokenizer.pad_token_id
+        
+        # Tokenize input with proper parameters including attention_mask
         try:
-            inputs = tokenizer(
+            encoded = tokenizer(
                 prompt, 
                 return_tensors='pt', 
                 truncation=True, 
                 max_length=512,
                 padding=False
-            )['input_ids']
+            )
+            input_ids = encoded['input_ids']
+            attention_mask = encoded['attention_mask']
+            
         except Exception as tokenizer_error:
             print(f"Tokenizer error: {tokenizer_error}")
             # Fallback to simple encoding
-            inputs = tokenizer.encode(prompt, return_tensors='pt', add_special_tokens=True)
-            if inputs.shape[1] > 512:
-                inputs = inputs[:, :512]  # Manual truncation
+            input_ids = tokenizer.encode(prompt, return_tensors='pt', add_special_tokens=True)
+            if input_ids.shape[1] > 512:
+                input_ids = input_ids[:, :512]  # Manual truncation
+            # Create attention mask manually
+            attention_mask = torch.ones_like(input_ids)
         
-        # Generate response
+        # Generate response with both input_ids and attention_mask
         with torch.no_grad():
             outputs = model.generate(
-                inputs,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 **config
             )
         
@@ -1569,7 +1577,6 @@ def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
     except Exception as e:
         print(f"Error in generate_response: {e}")
         return "Error generating response"
-
         
 def find_proof_reviews(reviews, category, limit=3):
     """Find proof reviews for a specific category."""
