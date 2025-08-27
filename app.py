@@ -1088,8 +1088,8 @@ def generate_category_summary(reviews, category_name, is_positive=False, selecte
     
     # Limit and clean reviews
     review_texts = []
-    for r in reviews[:4]:  # Even fewer for DistilGPT2
-        clean_content = r['content'].strip()[:100]  # Shorter content
+    for r in reviews[:10]:  # Even fewer for DistilGPT2
+        clean_content = r['content'].strip()[:300]  # Shorter content
         if clean_content:
             review_texts.append(f"- {clean_content}")
     
@@ -1110,10 +1110,10 @@ def generate_category_summary(reviews, category_name, is_positive=False, selecte
         ]
         
         for i, prompt in enumerate(prompts_to_try):
-            print(f"Trying DistilGPT2 prompt {i+1}: {prompt[:50]}...")
+            print(f"Trying DistilGPT2 prompt {i+1}: {prompt[:200]}...")
             
             try:
-                response_text = generate_response_fixed(
+                response_text = generate_response(
                     models['reasoning_model'],
                     models['reasoning_tokenizer'],
                     prompt,
@@ -1152,7 +1152,7 @@ Write a brief summary (2-3 sentences) explaining what issues users are experienc
     print(f"Model: {model_name}, Prompt length: {len(prompt)}")
     print(f"Category Summary Prompt: {prompt}") 
     try:
-        response_text = generate_response_fixed(
+        response_text = generate_response(
             models['reasoning_model'],
             models['reasoning_tokenizer'],
             prompt,
