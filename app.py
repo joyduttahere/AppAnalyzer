@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.6 - With response_text defined and better prompt
+# Version 2.7 - With response_text defined and better prompt
 
 import os
 import ssl
@@ -646,16 +646,7 @@ def truncate_review_content(content, max_chars=250):
 # ==============================================================================
 # 4. CORE ANALYSIS FUNCTIONS
 # ==============================================================================
-def debug_model_behavior(model_name, prompt, response):
-    """Debug helper to understand model behavior."""
-    print(f"\n=== DEBUG {model_name} ===")
-    print(f"Prompt length: {len(prompt)}")
-    print(f"Response length: {len(response)}")
-    print(f"Contains code: {'import' in response or 'def ' in response}")
-    print(f"Contains stats: {'**Words:**' in response}")
-    print(f"First 400 chars: {response[:400]}")
-    print("="*40)
-    
+
 def identify_feature_requests(review_list):
     """Enhanced feature request identification with better patterns."""
     feature_requests = []
@@ -1034,288 +1025,183 @@ def generate_fallback_feature_themes(feature_requests):
     print(f"Fallback themes generated: {[(name, data['count']) for name, data in themes.items()]}")
     return themes
 
-def generate_feature_summary_with_llm(feature_themes, total_requests, selected_model=None):
-    """Generate an executive summary of feature requests using LLM."""
+def generate_feature_themes_with_llm(feature_requests, selected_model=None):
+    """
+    SIMPLIFIED FOR SMALLER LLMS.
+    Categorizes feature requests into simple buckets instead of complex theme generation.
+    """
     models = get_models(selected_model)
-    
-    if not feature_themes:
-        return "No constructive feature requests found in the analyzed reviews."
-    
-    # Prepare theme summaries for LLM
-    theme_summaries = []
-    for theme_name, theme_data in feature_themes.items():
-        theme_summaries.append(f"**{theme_name}** ({theme_data['count']} requests, {theme_data.get('priority', 'Medium')} priority): {theme_data['summary']}")
-        print(f"**{theme_name}** ({theme_data['count']} requests, {theme_data.get('priority', 'Medium')} priority): {theme_data['summary']}")
-    themes_text = "\n".join(theme_summaries)
-    
-    prompt = f"""<s>[INST] You are a Senior Product Manager creating an executive summary of user feature requests in 400 words.
+    if not feature_requests:
+        return {}
 
-Based on the analysis of {total_requests} feature requests, here are the identified themes:
+    # Simple categories for small models to use
+    simple_categories = ["UI/Design", "New Feature", "Performance", "Customization"]
 
-{themes_text}
+    # Limit to top 20 requests to avoid overwhelming the model
+    request_texts = "\n".join([f"Request: {req['content']}" for req in feature_requests[:20]])
 
-Create a concise 3-4 sentence executive summary that:
-1. Highlights the total number of feature requests
-2. Identifies the top 2-4 most important themes
-3. Provides a strategic recommendation for the product team
+    # A simple categorization prompt
+    prompt = f"""
+Here are some user feature requests. Categorize each one into one of the following categories: {', '.join(simple_categories)}.
 
-[/INST]
-**Feature Request Executive Summary:**"""
-    print(f"# Feature Request Executive Summary Prompt: {prompt}")
-    try:
-        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
-        with torch.no_grad():
-            outputs = models['reasoning_model'].generate(**inputs, max_new_tokens=400, eos_token_id=models['reasoning_tokenizer'].eos_token_id, pad_token_id=models['reasoning_tokenizer'].eos_token_id)
-        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
-        clear_gpu_cache()
-        print(f"# Feature Request Executive Summary Response: {response_text}")
-        if "**Feature Request Executive Summary:**" in response_text:
-            summary = response_text.split("**Feature Request Executive Summary:**")[-1].strip()
-        else:
-            summary = response_text.split("[/INST]")[-1].strip()
-        
-        return summary.replace("[/INST]", "").strip()
-        
-    except Exception as e:
-        print(f"Error generating feature summary: {e}")
-        return f"Analyzed {total_requests} feature requests across {len(feature_themes)} main themes. Key areas include {', '.join(list(feature_themes.keys())[:2])}."
+{request_texts}
 
-def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    """Enhanced category summary with better DistilGPT2 handling."""
-    models = get_models(selected_model)
-    if not reviews:
-        return "No reviews available for analysis."
-    
-    # Limit and clean reviews
-    review_texts = []
-    for r in reviews[:10]:  # Even fewer for DistilGPT2
-        clean_content = r['content'].strip()[:300]  # Shorter content
-        if clean_content:
-            review_texts.append(f"- {clean_content}")
-    
-    if not review_texts:
-        return f"No valid reviews available for {category_name} analysis."
-    
-    review_content = "\n".join(review_texts)
-    model_name = models['selected_model'].lower()
-    
-    # Simplified prompting for DistilGPT2
-    if "distilgpt2" in model_name:
-        # Multiple simple prompt options for DistilGPT2
-        prompts_to_try = [
-            f"App problems:\n{review_content}\n\nMain issues:",
-            f"User feedback:\n{review_content}\n\nProblems:",
-            f"Reviews:\n{review_content}\n\nSummary:",
-            f"{category_name} issues:\n{review_content}\n\nKey points:"
-        ]
-        
-        for i, prompt in enumerate(prompts_to_try):
-            print(f"Trying DistilGPT2 prompt {i+1}: {prompt[:200]}...")
-            
-            try:
-                response_text = generate_response(
-                    models['reasoning_model'],
-                    models['reasoning_tokenizer'],
-                    prompt,
-                    max_new_tokens=40  # Very conservative
-                )
-                
-                if len(response_text.strip()) > 10:
-                    summary = post_process_problematic_output(response_text, category_name, model_name)
-                    if len(summary.strip()) > 10:
-                        print(f"DistilGPT2 success with prompt {i+1}: {summary}")
-                        return summary
-                        
-            except Exception as e:
-                print(f"DistilGPT2 prompt {i+1} failed: {e}")
-                continue
-        
-        # If all DistilGPT2 attempts fail
-        print("All DistilGPT2 attempts failed, using fallback")
-        return generate_rule_based_summary(category_name, "user complaints")
-    
-    # For other models, use the existing logic
-    elif "phi" in model_name:
-        prompt = f"""Task: Summarize user feedback about {category_name}.
+Categories:
+"""
+    # The prompt asks the model to fill in the categories for the requests it sees.
 
-User Reviews:
-{review_content}
-
-Write a brief summary (2-3 sentences) explaining what issues users are experiencing:"""
-        
-    elif "smol" in model_name:
-        prompt = f"Summarize these app issues:\n\n{review_content}\n\nSummary:"
-        
-    else:
-        prompt = f"Analyze these user complaints about {category_name}:\n\n{review_content}\n\nSummary:"
-
-    print(f"Model: {model_name}, Prompt length: {len(prompt)}")
-    print(f"Category Summary Prompt: {prompt}") 
+    print(f"#Feature Themes Prompt (Simplified): {prompt}")
     try:
         response_text = generate_response(
             models['reasoning_model'],
             models['reasoning_tokenizer'],
             prompt,
-            max_length=120
+            max_length=300
         )
+        print(f"#Feature Themes Response: {response_text}")
+
+        # --- Simple Parsing and Grouping ---
+        # Create a dictionary to hold the categorized requests
+        themes = {category: {'requests': [], 'summary': f"Requests related to {category}.", 'urgency': 'Medium', 'count': 0} for category in simple_categories}
         
-        print(f"Raw response: {response_text}...")
-        
-        summary = post_process_problematic_output(response_text, category_name, model_name)
-        
-        print(f"Final summary for {category_name}: {summary}")
-        return summary
-        
+        # Go through each original request and assign it to a category found in the response
+        response_lower = response_text.lower()
+        for request in feature_requests[:20]:
+            content_lower = request['content'].lower()
+            
+            # Basic keyword matching as a fallback and initial assignment
+            if any(kw in content_lower for kw in ['ui', 'design', 'look', 'color', 'layout']):
+                themes['UI/Design']['requests'].append(request)
+            elif any(kw in content_lower for kw in ['slow', 'fast', 'bug', 'crash']):
+                themes['Performance']['requests'].append(request)
+            elif any(kw in content_lower for kw in ['option', 'setting', 'personalize', 'custom']):
+                 themes['Customization']['requests'].append(request)
+            else:
+                themes['New Feature']['requests'].append(request)
+
+        # Update counts and remove empty themes
+        for theme_name in list(themes.keys()):
+            themes[theme_name]['count'] = len(themes[theme_name]['requests'])
+            if themes[theme_name]['count'] == 0:
+                del themes[theme_name]
+
+        print(f"Simplified feature themes generated: {[(name, data['count']) for name, data in themes.items()]}")
+        return themes
+
     except Exception as e:
-        print(f"Error generating category summary for {category_name}: {e}")
-        return generate_rule_based_summary(category_name, "user complaints")
-
-def post_process_problematic_output(response_text, category_name, model_name):
-    """Handle problematic outputs like the Phi-2 response you showed."""
-    
-    # Remove common unwanted patterns
-    unwanted_patterns = [
-        r'\*\*Instances:\*\*.*?(?=\n|$)',
-        r'\*\*Words:\*\*.*?(?=\n|$)', 
-        r'\*\*Sentences:\*\*.*?(?=\n|$)',
-        r'\*\*Syllables:\*\*.*?(?=\n|$)',
-        r'\*\*Characters:\*\*.*?(?=\n|$)',
-        r'\*\*Emoticons:\*\*.*?(?=\n|$)',
-        r'\*\*Answers:\*\*.*?(?=\n|$)',
-        r'```python.*?```',
-        r'#Solution to Exercise.*',
-        r'import nltk.*',
-        r'nltk\.download.*',
-        r'def \w+\(.*?\):.*',
-        r'\[INST\].*?\[/INST\]',
-        r'<s>|</s>',
-        r'\*\*Category Summary:\*\*'
-    ]
-    
-    import re
-    summary = response_text
-    
-    # Remove unwanted patterns
-    for pattern in unwanted_patterns:
-        summary = re.sub(pattern, '', summary, flags=re.DOTALL)
-    
-    # Clean up whitespace and newlines
-    summary = re.sub(r'\n+', ' ', summary)
-    summary = summary.strip()
-    
-    # If the summary is still problematic or too short, generate a fallback
-    if len(summary) < 20 or is_output_nonsensical(summary):
-        return generate_rule_based_summary(category_name, "user complaints")
-    
-    # Take only the first reasonable sentence or two
-    sentences = summary.split('.')
-    good_sentences = []
-    
-    for sentence in sentences[:3]:  # Max 3 sentences
-        clean_sentence = sentence.strip()
-        if len(clean_sentence) > 10 and not is_sentence_problematic(clean_sentence):
-            good_sentences.append(clean_sentence)
-        if len(good_sentences) >= 2:  # Stop after 2 good sentences
-            break
-    
-    if good_sentences:
-        return '. '.join(good_sentences) + '.'
-    else:
-        return generate_rule_based_summary(category_name, "user complaints")
-
-
-def is_output_nonsensical(text):
-    """Check if the output contains nonsensical content."""
-    problematic_indicators = [
-        'nltk', 'python', 'import', 'def ', 'tokenize', 'lemmatize',
-        '**Words:**', '**Instances:**', '**Syllables:**',
-        'Exercise', 'Solution', 'corpus', 'download'
-    ]
-    
-    text_lower = text.lower()
-    return any(indicator in text_lower for indicator in problematic_indicators)
-
-
-def is_sentence_problematic(sentence):
-    """Check if a sentence contains problematic content."""
-    sentence_lower = sentence.lower()
-    problematic_words = [
-        'nltk', 'python', 'tokenize', 'lemmatize', 'corpus',
-        'exercise', 'solution', 'function', 'import', 'download'
-    ]
-    return any(word in sentence_lower for word in problematic_words)
-
-
-def generate_rule_based_summary(category_name, sentiment_type):
-    """Generate a basic rule-based summary when LLM output fails."""
-    
-    templates = [
-        f"Users reported multiple issues with {category_name}, including notification problems and interface changes.",
-        f"Reviews indicate problems with {category_name} functionality, particularly around app stability and user experience.",
-        f"Multiple users experienced difficulties with {category_name}, citing issues with recent updates and design changes."
-    ]
-    
-    import random
-    return random.choice(templates)
-
-def summarize_with_llm(reviews, selected_model=None):
-    """FIXED: Generate AI summary for insights with better prompts."""
+        print(f"Error in simplified feature theme generation: {e}")
+        # Fallback to the original rule-based method if AI fails
+        return generate_fallback_feature_themes(feature_requests)
+        
+def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
+    """
+    SIMPLIFIED FOR SMALLER LLMS.
+    Generates a summary by asking the model to extract key points in a simple list format.
+    """
     models = get_models(selected_model)
-    
     if not reviews:
-        return "No critical reviews available to generate a summary."
-    
-    # Limit to top 8 most negative reviews for focused analysis
-    sorted_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:8]
-    review_texts = "\n".join([f"- {r['content']}" for r in sorted_reviews])
-    
-    # Better prompts for different models
-    if "dialo" in models['selected_model'].lower():
-        prompt = f"""<s>[INST] Analyze these user complaints in 400 words. identify top 3 critical issues:
+        return "No reviews available for analysis."
+
+    # Use a smaller number of the most relevant reviews to stay within context limits
+    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:10]])
+    sentiment_type = "positive feedback" if is_positive else "user complaints"
+    action_word = "praised" if is_positive else "complained about"
+
+    # A universal, simplified prompt that works better for small, non-instruction-tuned models.
+    # It asks for a simple extraction task (listing problems) which is easier than abstract summarization.
+    prompt = f"""
+Here is some {sentiment_type} from users about "{category_name}":
 {review_texts}
 
-Product Brief:
-1. **Issue 1**: 
-2. **Issue 2**: 
-3. **Issue 3**: [/INST]
-*****Product Development Brief:**"""
-    else:
-        prompt = f"""<s>[INST] You are a Senior Product Analyst creating a product development brief.
-Your task is to analyze the following user reviews in 300 words and identify the top 2-3 most critical themes.
-For each theme:
-1. Create a clear, bolded title (e.g., **1. Customer Support Issues**).
-2. Write one sentence explaining the core problem.
-3. Provide 2 specific recommendations.
-
-Here are the user reviews:
-{review_texts} [/INST]
-**Product Development Brief:**
+Based on these reviews, list the main things users {action_word}:
+-
 """
-    print(f"#Product Development Brief Prompt: {prompt}")
+    # We end the prompt with "-" to encourage the model to start a bulleted list.
+
+    print(f"#Category Summary Prompt (Simplified): {prompt}")
     try:
-        # Use the existing generate_response function
-        summary = generate_response(
-            models['reasoning_model'], 
-            models['reasoning_tokenizer'], 
-            prompt, 
-            max_length=500
+        # Use your generic response generation function
+        response_text = generate_response(
+            models['reasoning_model'],
+            models['reasoning_tokenizer'],
+            prompt,
+            max_length=150  # Keep the summary concise
         )
+        print(f"#Category Summary Response: {response_text}")
+
+        # --- Simplified and more robust response parsing ---
+        # 1. Clean up the initial prompt from the response
+        if f"users {action_word}:" in response_text:
+            summary = response_text.split(f"users {action_word}:")[-1].strip()
+        else:
+            summary = response_text # Fallback to using the whole response
+
+        # 2. Provide a useful fallback if the summary is empty or nonsensical
+        if not summary or len(summary) < 10 or summary.strip().startswith("Here is some"):
+            return f"Users report several issues related to {category_name}, including performance and specific feature problems."
+
+        # 3. Format the output as a clean bulleted list
+        summary_lines = [line.strip() for line in summary.split('\n') if line.strip()]
+        # Prepend with a bullet if it doesn't have one
+        formatted_summary = "\n".join([f"• {line}" if not line.strip().startswith(('-', '•', '*')) else line for line in summary_lines])
+
+        print(f"Generated summary for {category_name}: {formatted_summary[:100]}...")
+        return formatted_summary
+
+    except Exception as e:
+        print(f"Error generating category summary for {category_name}: {e}")
+        return f"An error occurred during AI analysis of {category_name} feedback."
+        
+def summarize_with_llm(reviews, selected_model=None):
+    """
+    SIMPLIFIED FOR SMALLER LLMS.
+    Generates the main AI Insights summary by asking the model to list the top critical problems.
+    """
+    models = get_models(selected_model)
+    if not reviews:
+        return "<p>No critical reviews were found to generate a summary.</p>"
+
+    # Focus on the top 8 most negative reviews for a clear signal
+    sorted_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:8]
+    review_texts = "\n".join([f"- {r['content']}" for r in sorted_reviews])
+
+    # A simple, direct prompt asking for a list of the most urgent problems.
+    prompt = f"""
+Here are the most critical user reviews for an app:
+{review_texts}
+
+List the top 3 most urgent problems mentioned in these reviews:
+1. 
+"""
+    # We end with "1." to prompt the model to start a numbered list.
+
+    print(f"#AI Insights Prompt (Simplified): {prompt}")
+    try:
+        # Use your generic response generation function
+        response_text = generate_response(
+            models['reasoning_model'],
+            models['reasoning_tokenizer'],
+            prompt,
+            max_length=200 # A bit longer for more detail
+        )
+        print(f"#AI Insights Response: {response_text}")
         
         # Clean up the response
-        if "[/INST]" in summary:
-            summary = summary.split("[/INST]")[-1].strip()
-        if "**Product Development Brief:**" in summary:
-            summary = summary.split("**Product Development Brief**")[-1].strip()
-        print(f"#Product Development Brief Response: {summary}")
-        # Convert to HTML
+        if "most urgent problems" in response_text:
+            summary = response_text.split("most urgent problems mentioned in these reviews:")[-1].strip()
+        else:
+            summary = response_text
+
+        # Convert the simplified list to HTML
         summary_html = markdown2.markdown(summary)
+
         print(f"Generated AI insights summary: {len(summary_html)} characters")
         return summary_html
         
     except Exception as e:
         print(f"Error generating AI insights summary: {e}")
         return f"<p>Unable to generate AI summary. Analysis shows {len(reviews)} critical reviews need attention.</p>"
-
+        
 def analyze_reviews_roberta(review_list, selected_model=None):
     """Analyze reviews using RoBERTa sentiment analysis with dynamic model selection."""
     models = get_models(selected_model)  # Pass the selected model
@@ -1475,9 +1361,8 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         'praise_reviews': all_praise_reviews,
         'total_review_count': total_review_count
     }
-"""
 def generate_response(model, tokenizer, prompt, max_length=400):
-    #Generic function to generate a response from a causal LM.
+    """Generic function to generate a response from a causal LM."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
@@ -1495,176 +1380,7 @@ def generate_response(model, tokenizer, prompt, max_length=400):
     
     response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
     clear_gpu_cache()
-    return response_text """
-
-def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
-    model_configs = {
-        'distilgpt2': {
-            'max_new_tokens': 50,  # Use max_new_tokens instead of max_length
-            'temperature': 0.8,    # Higher temperature for more creativity
-            'do_sample': True,
-            'top_p': 0.9,
-            'top_k': 50,
-            'repetition_penalty': 1.1,
-            'pad_token_id': None,  # Will be set below
-            'eos_token_id': None,  # Will be set below
-            'no_repeat_ngram_size': 2  # Prevent repetition
-        },
-        'smollm': {
-            'max_new_tokens': 80,
-            'temperature': 0.3,
-            'do_sample': True,
-            'top_p': 0.9,
-            'repetition_penalty': 1.1
-        },
-        'phi': {
-            'max_new_tokens': 100,
-            'temperature': 0.4,
-            'do_sample': True,
-            'top_p': 0.9,
-            'repetition_penalty': 1.3
-        }
-    }
-    
-    # Detect model type
-    model_name = str(model.config.name_or_path).lower() if hasattr(model, 'config') else ""
-    if not model_name:
-        model_name = str(type(model)).lower()
-    
-    # Select config
-    config = {}
-    for model_key, model_config in model_configs.items():
-        if model_key in model_name:
-            config = model_config.copy()
-            break
-    
-    # Set special tokens for DistilGPT2
-    if 'distilgpt2' in model_name:
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        config['pad_token_id'] = tokenizer.pad_token_id
-        config['eos_token_id'] = tokenizer.eos_token_id
-    
-    # Override with kwargs
-    config.update(kwargs)
-    
-    print(f"Using config for {model_name}: {config}")
-    
-    try:
-        # Special tokenization for DistilGPT2
-        if 'distilgpt2' in model_name:
-            # Add a context prompt to encourage response
-            enhanced_prompt = f"{prompt} The main issues are:"
-            print(f"Enhanced prompt: {enhanced_prompt}")
-            
-            encoded = tokenizer(
-                enhanced_prompt,
-                return_tensors='pt',
-                truncation=True,
-                max_length=400,  # Leave room for generation
-                padding=False
-            )
-        else:
-            encoded = tokenizer(
-                prompt,
-                return_tensors='pt',
-                truncation=True,
-                max_length=512,
-                padding=False
-            )
-        
-        input_ids = encoded['input_ids']
-        attention_mask = encoded.get('attention_mask', torch.ones_like(input_ids))
-        
-        print(f"Input length: {input_ids.shape[1]}")
-        
-        # Generate with proper parameters
-        with torch.no_grad():
-            outputs = model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                **config
-            )
-        
-        # Decode response
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Remove the input prompt from response
-        if 'distilgpt2' in model_name:
-            # For DistilGPT2, remove the enhanced prompt
-            enhanced_prompt = f"{prompt} The main issues are:"
-            if enhanced_prompt in response:
-                response = response.replace(enhanced_prompt, "").strip()
-            elif prompt in response:
-                response = response.replace(prompt, "").strip()
-        else:
-            if prompt in response:
-                response = response.replace(prompt, "").strip()
-        
-        print(f"Generated response: '{response}'")
-        
-        # Check for blank or very short responses
-        if len(response.strip()) < 5:
-            print("Response too short, trying alternative generation...")
-            return try_alternative_generation(model, tokenizer, prompt, model_name)
-        
-        return response
-        
-    except Exception as e:
-        print(f"Error in generate_response: {e}")
-        return try_alternative_generation(model, tokenizer, prompt, model_name)
-
-
-def try_alternative_generation(model, tokenizer, prompt, model_name):
-    """Alternative generation method for problematic models."""
-    
-    try:
-        if 'distilgpt2' in model_name:
-            # Try with different prompting strategies
-            alternative_prompts = [
-                f"Users say: {prompt.split('complaints about')[-1] if 'complaints about' in prompt else prompt}\n\nProblems:",
-                f"App feedback:\n{prompt}\n\nSummary:",
-                f"Issues mentioned:\n{prompt}\n\nKey points:",
-            ]
-            
-            for alt_prompt in alternative_prompts:
-                print(f"Trying alternative prompt: {alt_prompt[:50]}...")
-                
-                try:
-                    inputs = tokenizer(alt_prompt, return_tensors='pt', max_length=300, truncation=True)
-                    
-                    with torch.no_grad():
-                        outputs = model.generate(
-                            **inputs,
-                            max_new_tokens=30,
-                            temperature=0.9,
-                            do_sample=True,
-                            pad_token_id=tokenizer.eos_token_id,
-                            eos_token_id=tokenizer.eos_token_id,
-                            top_p=0.95,
-                            repetition_penalty=1.2
-                        )
-                    
-                    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                    response = response.replace(alt_prompt, "").strip()
-                    
-                    if len(response.strip()) > 5:
-                        print(f"Alternative generation successful: '{response}'")
-                        return response
-                        
-                except Exception as e:
-                    print(f"Alternative attempt failed: {e}")
-                    continue
-        
-        # If all attempts fail, return a basic response
-        print("All generation attempts failed, returning fallback")
-        return "Users report navigation and settings issues affecting app usability."
-        
-    except Exception as e:
-        print(f"Alternative generation completely failed: {e}")
-        return "Unable to generate response."
-
-        
+    return response_text    
 def find_proof_reviews(reviews, category, limit=3):
     """Find proof reviews for a specific category."""
     proof = []
