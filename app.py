@@ -653,7 +653,7 @@ def debug_model_behavior(model_name, prompt, response):
     print(f"Response length: {len(response)}")
     print(f"Contains code: {'import' in response or 'def ' in response}")
     print(f"Contains stats: {'**Words:**' in response}")
-    print(f"First 100 chars: {response[:100]}")
+    print(f"First 400 chars: {response[:400]}")
     print("="*40)
     
 def identify_feature_requests(review_list):
@@ -1125,6 +1125,7 @@ Write a brief summary (2-3 sentences) explaining what issues users are experienc
 
     print(f"Model: {model_name}")
     print(f"Prompt length: {len(prompt)}")
+    print(f"Category summary Prompt: {prompt}") 
     
     try:
         # Generate with model-specific parameters
@@ -1236,6 +1237,7 @@ def generate_rule_based_summary(category_name, sentiment_type):
     
     import random
     return random.choice(templates)
+
 def summarize_with_llm(reviews, selected_model=None):
     """FIXED: Generate AI summary for insights with better prompts."""
     models = get_models(selected_model)
@@ -1571,7 +1573,8 @@ def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
         # Remove the input prompt from the response if it's echoed
         if prompt in response:
             response = response.replace(prompt, "").strip()
-        
+        print(f"Generate_response: {response}")
+        print(" - " * 20)
         return response
         
     except Exception as e:
