@@ -1080,7 +1080,7 @@ Create a concise 3-4 sentence executive summary that:
         print(f"Error generating feature summary: {e}")
         return f"Analyzed {total_requests} feature requests across {len(feature_themes)} main themes. Key areas include {', '.join(list(feature_themes.keys())[:2])}."
 
-def generate_category_summary_fixed(reviews, category_name, is_positive=False, selected_model=None):
+def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
     """Fixed category summary generation with better Phi-2 handling."""
     models = get_models(selected_model)
     if not reviews:
@@ -1475,7 +1475,7 @@ def generate_response(model, tokenizer, prompt, max_length=400):
     clear_gpu_cache()
     return response_text """
 
-def generate_response(model, tokenizer, prompt, max_length=400, **kwargs):
+def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
     """Enhanced generate_response with model-specific configurations."""
     
     # Model-specific configurations
@@ -1529,13 +1529,26 @@ def generate_response(model, tokenizer, prompt, max_length=400, **kwargs):
     print(f"Using config for model {model_name}: {config}")
     
     try:
-        # Tokenize input
-        inputs = tokenizer.encode(prompt, return_tensors='pt', truncate=True, max_length=512)
-        
         # Set pad_token_id if not already set
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
             config['pad_token_id'] = tokenizer.eos_token_id
+        
+        # Tokenize input with proper parameters
+        try:
+            inputs = tokenizer(
+                prompt, 
+                return_tensors='pt', 
+                truncation=True, 
+                max_length=512,
+                padding=False
+            )['input_ids']
+        except Exception as tokenizer_error:
+            print(f"Tokenizer error: {tokenizer_error}")
+            # Fallback to simple encoding
+            inputs = tokenizer.encode(prompt, return_tensors='pt', add_special_tokens=True)
+            if inputs.shape[1] > 512:
+                inputs = inputs[:, :512]  # Manual truncation
         
         # Generate response
         with torch.no_grad():
@@ -1556,6 +1569,7 @@ def generate_response(model, tokenizer, prompt, max_length=400, **kwargs):
     except Exception as e:
         print(f"Error in generate_response: {e}")
         return "Error generating response"
+
         
 def find_proof_reviews(reviews, category, limit=3):
     """Find proof reviews for a specific category."""
