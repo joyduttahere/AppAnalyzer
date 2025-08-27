@@ -790,26 +790,23 @@ Summary: [2-3 sentence description]
 Urgency: [High/Medium/Low]
 
 [/INST]
-
-**Feature Request Analysis:**
-
-"""
-    
+**Feature Request Analysis:**"""
+    print(f"#Feature request prompt: {prompt}")
     try:
         inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
         with torch.no_grad():
             outputs = models['reasoning_model'].generate(**inputs, max_new_tokens=400, eos_token_id=models['reasoning_tokenizer'].eos_token_id, pad_token_id=models['reasoning_tokenizer'].eos_token_id)
         response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
         clear_gpu_cache()
-        
+        print(f"#Feature request response: {response_text}")
         # Extract the analysis
         if "**Feature Request Analysis:**" in response_text:
             analysis_text = response_text.split("**Feature Request Analysis:**")[-1].strip()
         else:
             analysis_text = response_text.split("[/INST]")[-1].strip()
         
-        print("DEBUG: LLM Analysis Response:")
-        print(analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text)
+        print(f"DEBUG: LLM Analysis Response: {analysis_text}")
+        #print(analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text)
         
         # Parse the LLM response to create structured themes
         themes = parse_llm_feature_themes(analysis_text, feature_requests)
@@ -1054,18 +1051,15 @@ Create a concise 3-4 sentence executive summary that:
 3. Provides a strategic recommendation for the product team
 
 [/INST]
-
-**Feature Request Executive Summary:**
-
-"""
-    
+**Feature Request Executive Summary:**"""
+    print(f"# Feature Request Executive Summary Prompt: {prompt}")
     try:
         inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
         with torch.no_grad():
             outputs = models['reasoning_model'].generate(**inputs, max_new_tokens=400, eos_token_id=models['reasoning_tokenizer'].eos_token_id, pad_token_id=models['reasoning_tokenizer'].eos_token_id)
         response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
         clear_gpu_cache()
-        
+        print(f"# Feature Request Executive Summary Response: {response_text}")
         if "**Feature Request Executive Summary:**" in response_text:
             summary = response_text.split("**Feature Request Executive Summary:**")[-1].strip()
         else:
@@ -1098,7 +1092,7 @@ def generate_category_summary(reviews, category_name, is_positive=False, selecte
 Here are the user reviews:
 {review_texts} [/INST]
 **Category Summary:**"""
-    
+    print(f"#Category Summary: Prompt: {prompt}")
     try:
         # Use the existing generate_response function from your code
         response_text = generate_response(
@@ -1107,7 +1101,7 @@ Here are the user reviews:
             prompt, 
             max_length=300
         )
-        
+        print(f"#Category Summary Response: {response_text}")
         # Clean up the response
         if "**Category Summary:**" in response_text:
             summary = response_text.split("**Category Summary:**")[-1].strip()
@@ -1158,7 +1152,7 @@ Here are the user reviews:
 {review_texts} [/INST]
 **Product Development Brief:**
 """
-    
+    print(f"#Product Development Brief Prompt: {prompt}")
     try:
         # Use the existing generate_response function
         summary = generate_response(
@@ -1173,7 +1167,7 @@ Here are the user reviews:
             summary = summary.split("[/INST]")[-1].strip()
         if "**Product Development Brief:**" in summary:
             summary = summary.split("**Product Development Brief**")[-1].strip()
-        
+        print(f"#Product Development Brief Response: {summary}")
         # Convert to HTML
         summary_html = markdown2.markdown(summary)
         print(f"Generated AI insights summary: {len(summary_html)} characters")
