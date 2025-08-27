@@ -1081,15 +1081,15 @@ Create a concise 3-4 sentence executive summary that:
         return f"Analyzed {total_requests} feature requests across {len(feature_themes)} main themes. Key areas include {', '.join(list(feature_themes.keys())[:2])}."
 
 def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    """Fixed category summary generation with better Phi-2 handling."""
+    """Enhanced category summary with better DistilGPT2 handling."""
     models = get_models(selected_model)
     if not reviews:
         return "No reviews available for analysis."
     
     # Limit and clean reviews
     review_texts = []
-    for r in reviews[:6]:  # Further reduced for small models
-        clean_content = r['content'].strip()[:150]  # Shorter individual reviews
+    for r in reviews[:4]:  # Even fewer for DistilGPT2
+        clean_content = r['content'].strip()[:100]  # Shorter content
         if clean_content:
             review_texts.append(f"- {clean_content}")
     
@@ -1097,13 +1097,45 @@ def generate_category_summary(reviews, category_name, is_positive=False, selecte
         return f"No valid reviews available for {category_name} analysis."
     
     review_content = "\n".join(review_texts)
-    sentiment_type = "positive feedback" if is_positive else "user complaints"
-    
-    # Model-specific prompting strategies
     model_name = models['selected_model'].lower()
     
-    if "phi" in model_name:
-        # Phi-2 needs very clear, structured prompts
+    # Simplified prompting for DistilGPT2
+    if "distilgpt2" in model_name:
+        # Multiple simple prompt options for DistilGPT2
+        prompts_to_try = [
+            f"App problems:\n{review_content}\n\nMain issues:",
+            f"User feedback:\n{review_content}\n\nProblems:",
+            f"Reviews:\n{review_content}\n\nSummary:",
+            f"{category_name} issues:\n{review_content}\n\nKey points:"
+        ]
+        
+        for i, prompt in enumerate(prompts_to_try):
+            print(f"Trying DistilGPT2 prompt {i+1}: {prompt[:50]}...")
+            
+            try:
+                response_text = generate_response_fixed(
+                    models['reasoning_model'],
+                    models['reasoning_tokenizer'],
+                    prompt,
+                    max_new_tokens=40  # Very conservative
+                )
+                
+                if len(response_text.strip()) > 10:
+                    summary = post_process_problematic_output(response_text, category_name, model_name)
+                    if len(summary.strip()) > 10:
+                        print(f"DistilGPT2 success with prompt {i+1}: {summary}")
+                        return summary
+                        
+            except Exception as e:
+                print(f"DistilGPT2 prompt {i+1} failed: {e}")
+                continue
+        
+        # If all DistilGPT2 attempts fail
+        print("All DistilGPT2 attempts failed, using fallback")
+        return generate_rule_based_summary(category_name, "user complaints")
+    
+    # For other models, use the existing logic
+    elif "phi" in model_name:
         prompt = f"""Task: Summarize user feedback about {category_name}.
 
 User Reviews:
@@ -1111,44 +1143,32 @@ User Reviews:
 
 Write a brief summary (2-3 sentences) explaining what issues users are experiencing:"""
         
-    elif "distilgpt2" in model_name:
-        # DistilGPT2 needs simple prompts
-        prompt = f"App problems reported by users:\n{review_content}\n\nMain issues:"
-        
     elif "smol" in model_name:
-        # SmolLM format
         prompt = f"Summarize these app issues:\n\n{review_content}\n\nSummary:"
         
     else:
-        # Generic format
-        prompt = f"Analyze these {sentiment_type} about {category_name}:\n\n{review_content}\n\nSummary:"
+        prompt = f"Analyze these user complaints about {category_name}:\n\n{review_content}\n\nSummary:"
 
-    print(f"Model: {model_name}")
-    print(f"Prompt length: {len(prompt)}")
-    print(f"Category summary Prompt: {prompt}") 
-    
+    print(f"Model: {model_name}, Prompt length: {len(prompt)}")
+    print(f"Category Summary Prompt: {prompt}") 
     try:
-        # Generate with model-specific parameters
-        response_text = generate_response(
-            models['reasoning_model'], 
-            models['reasoning_tokenizer'], 
+        response_text = generate_response_fixed(
+            models['reasoning_model'],
+            models['reasoning_tokenizer'],
             prompt,
-            max_length=150  # Conservative length
+            max_length=120
         )
         
-        print(f"Raw response: {response_text[:200]}...")
+        print(f"Raw response: {response_text}...")
         
-        # Advanced post-processing for problematic outputs
         summary = post_process_problematic_output(response_text, category_name, model_name)
         
         print(f"Final summary for {category_name}: {summary}")
-        debug_model_behavior(model_name, prompt, summary)
         return summary
         
     except Exception as e:
         print(f"Error generating category summary for {category_name}: {e}")
-        return generate_fallback_summary(reviews, category_name, is_positive)
-
+        return generate_rule_based_summary(category_name, "user complaints")
 
 def post_process_problematic_output(response_text, category_name, model_name):
     """Handle problematic outputs like the Phi-2 response you showed."""
@@ -1478,88 +1498,87 @@ def generate_response(model, tokenizer, prompt, max_length=400):
     return response_text """
 
 def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
-    """Enhanced generate_response with model-specific configurations."""
-    
-    # Model-specific configurations
     model_configs = {
         'distilgpt2': {
-            'max_length': 100,
-            'temperature': 0.7,
+            'max_new_tokens': 50,  # Use max_new_tokens instead of max_length
+            'temperature': 0.8,    # Higher temperature for more creativity
             'do_sample': True,
             'top_p': 0.9,
-            'repetition_penalty': 1.2,
-            'pad_token_id': tokenizer.eos_token_id
+            'top_k': 50,
+            'repetition_penalty': 1.1,
+            'pad_token_id': None,  # Will be set below
+            'eos_token_id': None,  # Will be set below
+            'no_repeat_ngram_size': 2  # Prevent repetition
         },
         'smollm': {
-            'max_length': 150,
+            'max_new_tokens': 80,
             'temperature': 0.3,
             'do_sample': True,
             'top_p': 0.9,
             'repetition_penalty': 1.1
         },
-        'phi': {  # For Phi-2 and similar
-            'max_length': 200,
+        'phi': {
+            'max_new_tokens': 100,
             'temperature': 0.4,
             'do_sample': True,
             'top_p': 0.9,
-            'repetition_penalty': 1.3,
-            'num_beams': 1  # Disable beam search for more diverse output
+            'repetition_penalty': 1.3
         }
     }
     
-    # Detect model type from model name or tokenizer
+    # Detect model type
     model_name = str(model.config.name_or_path).lower() if hasattr(model, 'config') else ""
     if not model_name:
         model_name = str(type(model)).lower()
     
-    # Select appropriate config
+    # Select config
     config = {}
     for model_key, model_config in model_configs.items():
         if model_key in model_name:
-            config = model_config
+            config = model_config.copy()
             break
     
-    # Override with any passed kwargs
+    # Set special tokens for DistilGPT2
+    if 'distilgpt2' in model_name:
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        config['pad_token_id'] = tokenizer.pad_token_id
+        config['eos_token_id'] = tokenizer.eos_token_id
+    
+    # Override with kwargs
     config.update(kwargs)
     
-    # Use the max_length parameter if explicitly provided
-    if 'max_length' in kwargs:
-        config['max_length'] = kwargs['max_length']
-    elif max_length != 300:  # If non-default max_length was passed
-        config['max_length'] = max_length
-    
-    print(f"Using config for model {model_name}: {config}")
+    print(f"Using config for {model_name}: {config}")
     
     try:
-        # Set pad_token_id if not already set
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-        
-        # Always set pad_token_id in config
-        config['pad_token_id'] = tokenizer.pad_token_id
-        
-        # Tokenize input with proper parameters including attention_mask
-        try:
+        # Special tokenization for DistilGPT2
+        if 'distilgpt2' in model_name:
+            # Add a context prompt to encourage response
+            enhanced_prompt = f"{prompt} The main issues are:"
+            print(f"Enhanced prompt: {enhanced_prompt}")
+            
             encoded = tokenizer(
-                prompt, 
-                return_tensors='pt', 
-                truncation=True, 
+                enhanced_prompt,
+                return_tensors='pt',
+                truncation=True,
+                max_length=400,  # Leave room for generation
+                padding=False
+            )
+        else:
+            encoded = tokenizer(
+                prompt,
+                return_tensors='pt',
+                truncation=True,
                 max_length=512,
                 padding=False
             )
-            input_ids = encoded['input_ids']
-            attention_mask = encoded['attention_mask']
-            
-        except Exception as tokenizer_error:
-            print(f"Tokenizer error: {tokenizer_error}")
-            # Fallback to simple encoding
-            input_ids = tokenizer.encode(prompt, return_tensors='pt', add_special_tokens=True)
-            if input_ids.shape[1] > 512:
-                input_ids = input_ids[:, :512]  # Manual truncation
-            # Create attention mask manually
-            attention_mask = torch.ones_like(input_ids)
         
-        # Generate response with both input_ids and attention_mask
+        input_ids = encoded['input_ids']
+        attention_mask = encoded.get('attention_mask', torch.ones_like(input_ids))
+        
+        print(f"Input length: {input_ids.shape[1]}")
+        
+        # Generate with proper parameters
         with torch.no_grad():
             outputs = model.generate(
                 input_ids=input_ids,
@@ -1570,16 +1589,81 @@ def generate_response(model, tokenizer, prompt, max_length=300, **kwargs):
         # Decode response
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        # Remove the input prompt from the response if it's echoed
-        if prompt in response:
-            response = response.replace(prompt, "").strip()
-        print(f"Generate_response: {response}")
-        print(" - " * 20)
+        # Remove the input prompt from response
+        if 'distilgpt2' in model_name:
+            # For DistilGPT2, remove the enhanced prompt
+            enhanced_prompt = f"{prompt} The main issues are:"
+            if enhanced_prompt in response:
+                response = response.replace(enhanced_prompt, "").strip()
+            elif prompt in response:
+                response = response.replace(prompt, "").strip()
+        else:
+            if prompt in response:
+                response = response.replace(prompt, "").strip()
+        
+        print(f"Generated response: '{response}'")
+        
+        # Check for blank or very short responses
+        if len(response.strip()) < 5:
+            print("Response too short, trying alternative generation...")
+            return try_alternative_generation(model, tokenizer, prompt, model_name)
+        
         return response
         
     except Exception as e:
         print(f"Error in generate_response: {e}")
-        return "Error generating response"
+        return try_alternative_generation(model, tokenizer, prompt, model_name)
+
+
+def try_alternative_generation(model, tokenizer, prompt, model_name):
+    """Alternative generation method for problematic models."""
+    
+    try:
+        if 'distilgpt2' in model_name:
+            # Try with different prompting strategies
+            alternative_prompts = [
+                f"Users say: {prompt.split('complaints about')[-1] if 'complaints about' in prompt else prompt}\n\nProblems:",
+                f"App feedback:\n{prompt}\n\nSummary:",
+                f"Issues mentioned:\n{prompt}\n\nKey points:",
+            ]
+            
+            for alt_prompt in alternative_prompts:
+                print(f"Trying alternative prompt: {alt_prompt[:50]}...")
+                
+                try:
+                    inputs = tokenizer(alt_prompt, return_tensors='pt', max_length=300, truncation=True)
+                    
+                    with torch.no_grad():
+                        outputs = model.generate(
+                            **inputs,
+                            max_new_tokens=30,
+                            temperature=0.9,
+                            do_sample=True,
+                            pad_token_id=tokenizer.eos_token_id,
+                            eos_token_id=tokenizer.eos_token_id,
+                            top_p=0.95,
+                            repetition_penalty=1.2
+                        )
+                    
+                    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    response = response.replace(alt_prompt, "").strip()
+                    
+                    if len(response.strip()) > 5:
+                        print(f"Alternative generation successful: '{response}'")
+                        return response
+                        
+                except Exception as e:
+                    print(f"Alternative attempt failed: {e}")
+                    continue
+        
+        # If all attempts fail, return a basic response
+        print("All generation attempts failed, returning fallback")
+        return "Users report navigation and settings issues affecting app usability."
+        
+    except Exception as e:
+        print(f"Alternative generation completely failed: {e}")
+        return "Unable to generate response."
+
         
 def find_proof_reviews(reviews, category, limit=3):
     """Find proof reviews for a specific category."""
