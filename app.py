@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.7 - With response_text defined and better prompt
+# Version 2.8 - With roberta improved
 
 import os
 import ssl
@@ -1272,95 +1272,101 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         review['sentiment_score'] = final_score
         review['display_content'] = review['content'][:250] + "..." if len(review['content']) > 250 else review['content']
 
-    POSITIVE_THRESHOLD = 0.1
-    NEGATIVE_THRESHOLD = -0.1
+    POSITIVE_THRESHOLD = 0.2
+    NEGATIVE_THRESHOLD = -0.2
 
     # **FIX**: Initialize all variables that will be populated.
     pain_points = {}
     praise_points = {}
+    # Initialize category mentions structure (this part is correct)
     category_mentions = {}
     for main_cat, sub_topics in TOPIC_CATEGORIES.items():
         category_mentions[main_cat] = {
             'sub_topics': {sub_cat: {
-                'total': 0, 'pos': 0, 'neg': 0,
-                'negative_reviews_for_display': [],
-                'positive_reviews_for_display': [],
-                'negative_reviews_for_summary': [],
-                'positive_reviews_for_summary': []
+                'total': 0, 'pos': 0, 'neg': 0, 
+                'negative_reviews': [], # Store ALL negative reviews for this sub-topic
+                'positive_reviews': []  # Store ALL positive reviews for this sub-topic
             } for sub_cat in sub_topics},
             'main_total': 0, 'main_pos': 0, 'main_neg': 0, 'summary': '', 'positive_summary': ''
         }
 
-    # Classify reviews into categories
+    # Correctly populate the positive/negative review lists for each category
     for review in valid_reviews:
         sentiment_score = review['sentiment_score']
         is_pos = sentiment_score > POSITIVE_THRESHOLD
         is_neg = sentiment_score < NEGATIVE_THRESHOLD
-
+        
         for main_cat, sub_topics in TOPIC_CATEGORIES.items():
             for sub_cat, keywords in sub_topics.items():
                 if any(keyword in review['content'].lower() for keyword in keywords):
                     stats = category_mentions[main_cat]['sub_topics'][sub_cat]
+                    
                     stats['total'] += 1
                     if is_pos:
                         stats['pos'] += 1
-                        if len(stats['positive_reviews_for_display']) < 3: stats['positive_reviews_for_display'].append(review)
-                        if len(stats['positive_reviews_for_summary']) < 15: stats['positive_reviews_for_summary'].append(review)
+                        stats['positive_reviews'].append(review) # Add to positive list
                     elif is_neg:
                         stats['neg'] += 1
-                        if len(stats['negative_reviews_for_display']) < 3: stats['negative_reviews_for_display'].append(review)
-                        if len(stats['negative_reviews_for_summary']) < 15: stats['negative_reviews_for_summary'].append(review)
-                    break  # Avoid double counting in the same main category
+                        stats['negative_reviews'].append(review) # Add to negative list
+                    
+                    break # Avoid double counting
 
-    print("Generating topic summaries...")
+    print("Generating topic summaries with correctly filtered reviews...")
 
-    # Generate summaries and populate pain/praise points
+    # *** THE CRITICAL FIX IS HERE ***
+    # Now, generate summaries using ONLY the relevantly filtered reviews
     for main_cat, data in category_mentions.items():
         data['main_pos'] = sum(sub['pos'] for sub in data['sub_topics'].values())
         data['main_neg'] = sum(sub['neg'] for sub in data['sub_topics'].values())
         data['main_total'] = data['main_pos'] + data['main_neg']
+        
+        # 1. Collect ONLY NEGATIVE reviews for the Pain Point summary
+        negative_summary_reviews = [r for sub in data['sub_topics'].values() for r in sub['negative_reviews']]
+        negative_summary_reviews.sort(key=lambda r: r['sentiment_score']) # Sort by most negative
+        
+        # 2. Collect ONLY POSITIVE reviews for the Praise Point summary
+        positive_summary_reviews = [r for sub in data['sub_topics'].values() for r in sub['positive_reviews']]
+        positive_summary_reviews.sort(key=lambda r: r['sentiment_score'], reverse=True) # Sort by most positive
 
-        if data['main_total'] > 0:
-            print(f"Processing {main_cat}: Total={data['main_total']}, Pos={data['main_pos']}, Neg={data['main_neg']}")
-            # **FIX**: Populate pain_points and praise_points after calculating totals
-            if data['main_neg'] > 0:
-                pain_points[main_cat] = data
-            if data['main_pos'] > 0:
-                praise_points[main_cat] = data
+        # Generate negative summary if there are enough negative reviews
+        if data['main_neg'] >= 2:
+            data['summary'] = generate_category_summary(negative_summary_reviews, main_cat, is_positive=False, selected_model=selected_model)
+        
+        # Generate positive summary if there are enough positive reviews
+        if data['main_pos'] >= 2:
+            data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True, selected_model=selected_model)
 
-        negative_summary_reviews = sorted([r for sub in data['sub_topics'].values() for r in sub['negative_reviews_for_summary']], key=lambda r: r['sentiment_score'])
-        positive_summary_reviews = sorted([r for sub in data['sub_topics'].values() for r in sub['positive_reviews_for_summary']], key=lambda r: r['sentiment_score'], reverse=True)
-
-        if len(negative_summary_reviews) >= 2:
-            print(f"Generating negative summary for {main_cat}...")
-            try:
-                data['summary'] = generate_category_summary(negative_summary_reviews, main_cat, is_positive=False, selected_model=selected_model)
-                print(f"✅ Generated negative summary for {main_cat}: {data['summary'][:100]}...")
-            except Exception as e:
-                print(f"❌ Failed to generate negative summary for {main_cat}: {e}")
-                data['summary'] = f"Users report various issues with {main_cat} functionality."
-
-        if len(positive_summary_reviews) >= 2:
-            print(f"Generating positive summary for {main_cat}...")
-            try:
-                data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True, selected_model=selected_model)
-                print(f"✅ Generated positive summary for {main_cat}: {data['positive_summary'][:100]}...")
-            except Exception as e:
-                print(f"❌ Failed to generate positive summary for {main_cat}: {e}")
-                data['positive_summary'] = f"Users appreciate {main_cat} features and functionality."
+        # --- This part is also for the UI display, not just summaries ---
+        # We also need to populate the display reviews from these filtered lists
+        for sub_cat_name, sub_cat_data in data['sub_topics'].items():
+            sub_cat_data['negative_reviews_for_display'] = sorted(sub_cat_data['negative_reviews'], key=lambda r: r['sentiment_score'])[:3]
+            sub_cat_data['positive_reviews_for_display'] = sorted(sub_cat_data['positive_reviews'], key=lambda r: r['sentiment_score'], reverse=True)[:3]
+            
+    # *** THE SECOND CRITICAL FIX IS HERE ***
+    # Correctly define Pain Points and Praise Points based on the majority sentiment
+    
+    pain_points = {
+        cat_name: cat_data for cat_name, cat_data in category_mentions.items()
+        if cat_data['main_neg'] > cat_data['main_pos'] and cat_data['main_neg'] > 0
+    }
+    
+    praise_points = {
+        cat_name: cat_data for cat_name, cat_data in category_mentions.items()
+        if cat_data['main_pos'] > cat_data['main_neg'] and cat_data['main_pos'] > 0
+    }
 
     # Calculate average sentiment score
     total_sentiment = sum(r['sentiment_score'] for r in valid_reviews)
     avg_sentiment_score = ((total_sentiment / len(valid_reviews)) + 1) * 2.5 if valid_reviews else 0
 
-    # **FIX**: Define attention/praise reviews *before* they are used.
+    # Get the final lists of all positive/negative reviews
     all_attention_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] < NEGATIVE_THRESHOLD],
                                  key=lambda r: r['sentiment_score'])
     all_praise_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] > POSITIVE_THRESHOLD],
                                key=lambda r: r['sentiment_score'], reverse=True)
 
-    # This print statement is now safe to execute
-    print(f"Final stats: Total reviews={total_review_count}, Negative={len(all_attention_reviews)}, Positive={len(all_praise_reviews)}")
+    print(f"Final stats: Total={total_review_count}, Negative={len(all_attention_reviews)}, Positive={len(all_praise_reviews)}")
+    print(f"Identified {len(pain_points)} Pain Point categories and {len(praise_points)} Praise Point categories.")
 
     return {
         'avg_sentiment_score': round(avg_sentiment_score, 2),
@@ -1371,6 +1377,7 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         'praise_reviews': all_praise_reviews,
         'total_review_count': total_review_count
     }
+    
 def generate_response(model, tokenizer, prompt, max_length=400):
     """Generic function to generate a response from a causal LM."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
