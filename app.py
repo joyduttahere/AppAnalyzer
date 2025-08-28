@@ -1094,113 +1094,123 @@ Categories:
         return generate_fallback_feature_themes(feature_requests)
         
 def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    """
-    SIMPLIFIED FOR SMALLER LLMS.
-    Generates a summary by asking the model to extract key points in a simple list format.
-    """
+    
     models = get_models(selected_model)
     if not reviews:
-        return "No reviews available for analysis."
+        return "No reviews available for this category."
 
-    # Use a smaller number of the most relevant reviews to stay within context limits
-    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:10]])
-    sentiment_type = "positive feedback" if is_positive else "user complaints"
-    action_word = "praised" if is_positive else "complained about"
+    # --- Smart Rule-Based Fallback ---
+    # This will be our default if the AI fails.
+    top_review_snippets = [f"• \"{truncate_review_content(r['content'], 80)}\"" for r in reviews[:2]]
+    fallback_summary = f"Key themes mentioned by users include:\n" + "\n".join(top_review_snippets)
 
-    # A universal, simplified prompt that works better for small, non-instruction-tuned models.
-    # It asks for a simple extraction task (listing problems) which is easier than abstract summarization.
+    # --- AI Keyword Extraction (Simplified Task) ---
+    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:5]])
+    sentiment_type = "positive feedback" if is_positive else "complaints"
+
+    # The simplest possible prompt: ask for keywords.
     prompt = f"""
-Here is some {sentiment_type} from users about "{category_name}":
+User {sentiment_type} about "{category_name}":
 {review_texts}
 
-Based on these reviews, list the main things users {action_word}:
--
+List 3 to 5 keywords that summarize these reviews:
 """
-    # We end the prompt with "-" to encourage the model to start a bulleted list.
+    print(f"#Category Summary Prompt (Keyword Extraction): {prompt}")
 
-    print(f"#Category Summary Prompt (Simplified): {prompt}")
     try:
-        # Use your generic response generation function
         response_text = generate_response(
             models['reasoning_model'],
             models['reasoning_tokenizer'],
             prompt,
-            max_length=150  # Keep the summary concise
+            max_length=40  # Only need a few words
         )
         print(f"#Category Summary Response: {response_text}")
 
-        # --- Simplified and more robust response parsing ---
-        # 1. Clean up the initial prompt from the response
-        if f"users {action_word}:" in response_text:
-            summary = response_text.split(f"users {action_word}:")[-1].strip()
+        # --- Validate the AI Output ---
+        # 1. Extract the part after the prompt
+        if "keywords that summarize these reviews:" in response_text:
+            keywords_text = response_text.split("keywords that summarize these reviews:")[-1].strip()
         else:
-            summary = response_text # Fallback to using the whole response
+            keywords_text = "" # Invalid response
 
-        # 2. Provide a useful fallback if the summary is empty or nonsensical
-        if not summary or len(summary) < 10 or summary.strip().startswith("Here is some"):
-            return f"Users report several issues related to {category_name}, including performance and specific feature problems."
-
-        # 3. Format the output as a clean bulleted list
-        summary_lines = [line.strip() for line in summary.split('\n') if line.strip()]
-        # Prepend with a bullet if it doesn't have one
-        formatted_summary = "\n".join([f"• {line}" if not line.strip().startswith(('-', '•', '*')) else line for line in summary_lines])
-
-        print(f"Generated summary for {category_name}: {formatted_summary[:100]}...")
-        return formatted_summary
+        # 2. Check if the output is valid
+        # It must not be empty, too short, or contain signs of prompt repetition/garbage.
+        if keywords_text and len(keywords_text) > 5 and "user complaints" not in keywords_text.lower():
+            # AI succeeded! Format the keywords into a nice summary.
+            keywords = re.split(r'[,\n-]', keywords_text)
+            clean_keywords = [kw.strip('* ') for kw in keywords if kw.strip()]
+            ai_summary = f"Common themes identified by AI: {', '.join(clean_keywords[:5])}."
+            print(f"✅ AI Keyword Extraction Successful for {category_name}.")
+            return ai_summary
+        else:
+            # AI failed, use the fallback.
+            print(f"⚠️ AI output for {category_name} was invalid. Using rule-based fallback.")
+            return fallback_summary
 
     except Exception as e:
-        print(f"Error generating category summary for {category_name}: {e}")
-        return f"An error occurred during AI analysis of {category_name} feedback."
+        print(f"Error in AI keyword extraction for {category_name}: {e}. Using rule-based fallback.")
+        return fallback_summary
         
 def summarize_with_llm(reviews, selected_model=None):
     """
-    SIMPLIFIED FOR SMALLER LLMS.
-    Generates the main AI Insights summary by asking the model to list the top critical problems.
+    ROBUST VERSION FOR SMALL LLMS.
+    Generates the main AI Insights. Attempts to use AI for keyword extraction,
+    but falls back to a structured, rule-based brief if AI fails.
     """
     models = get_models(selected_model)
     if not reviews:
-        return "<p>No critical reviews were found to generate a summary.</p>"
+        return markdown2.markdown("#### No critical reviews found to analyze.")
 
-    # Focus on the top 8 most negative reviews for a clear signal
-    sorted_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:8]
-    review_texts = "\n".join([f"- {r['content']}" for r in sorted_reviews])
+    # --- Smart Rule-Based Fallback ---
+    # This brief will be used if the AI fails.
+    top_critical_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:3]
+    fallback_brief = "#### Top Critical Issues Identified\n\n"
+    for i, review in enumerate(top_critical_reviews):
+        fallback_brief += f"**{i+1}. Issue:** Users report problems such as: \"_{truncate_review_content(review['content'], 100)}_\"\n"
+        fallback_brief += f"**Recommendation:** Investigate reports related to performance and feature stability.\n\n"
 
-    # A simple, direct prompt asking for a list of the most urgent problems.
+    # --- AI Keyword Extraction (Simplified Task) ---
+    review_texts = "\n".join([f"- {r['content']}" for r in top_critical_reviews])
     prompt = f"""
 Here are the most critical user reviews for an app:
 {review_texts}
 
-List the top 3 most urgent problems mentioned in these reviews:
-1. 
+List the top 3 most urgent problem keywords from these reviews:
 """
-    # We end with "1." to prompt the model to start a numbered list.
 
-    print(f"#AI Insights Prompt (Simplified): {prompt}")
+    print(f"#AI Insights Prompt (Keyword Extraction): {prompt}")
     try:
-        # Use your generic response generation function
         response_text = generate_response(
             models['reasoning_model'],
             models['reasoning_tokenizer'],
             prompt,
-            max_length=200 # A bit longer for more detail
+            max_length=50
         )
         print(f"#AI Insights Response: {response_text}")
         
-        # Clean up the response
-        if "most urgent problems" in response_text:
-            summary = response_text.split("most urgent problems mentioned in these reviews:")[-1].strip()
+        # --- Validate the AI Output ---
+        if "problem keywords from these reviews:" in response_text:
+            keywords_text = response_text.split("problem keywords from these reviews:")[-1].strip()
         else:
-            summary = response_text
+            keywords_text = ""
 
-        # Convert the simplified list to HTML
-        summary_html = markdown2.markdown(summary)
+        if keywords_text and len(keywords_text) > 5 and "critical user reviews" not in keywords_text.lower():
+            # AI succeeded! Create a brief from the AI keywords.
+            print("✅ AI Keyword Extraction for Insights Successful.")
+            ai_brief = "#### Top Critical Themes Identified by AI\n\n"
+            keywords = re.split(r'[\n,]', keywords_text)
+            for kw in keywords:
+                if kw.strip():
+                    ai_brief += f"- **Theme:** {kw.strip().strip('1.2.3.- ')}\n"
+                    ai_brief += f"- **Recommendation:** Prioritize investigation into user feedback concerning this area.\n"
+            return markdown2.markdown(ai_brief)
+        else:
+            print("⚠️ AI output for Insights was invalid. Using rule-based fallback.")
+            return markdown2.markdown(fallback_brief)
 
-        print(f"Generated AI insights summary: {len(summary_html)} characters")
-        return summary_html
-        
     except Exception as e:
-        print(f"Error generating AI insights summary: {e}")
-        return f"<p>Unable to generate AI summary. Analysis shows {len(reviews)} critical reviews need attention.</p>"
+        print(f"Error generating AI insights: {e}. Using rule-based fallback.")
+        return markdown2.markdown(fallback_brief)
         
 def analyze_reviews_roberta(review_list, selected_model=None):
     """Analyze reviews using RoBERTa sentiment analysis with dynamic model selection."""
