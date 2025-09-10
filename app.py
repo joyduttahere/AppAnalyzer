@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.8 - With roberta improved
+# Version 2.9 - With better prompts for small llm
 
 import os
 import ssl
@@ -413,31 +413,23 @@ def get_models(selected_model=None):
                         
                 elif "phi-2" in selected_model.lower():
                     try:
-                        quantization_config = BitsAndBytesConfig(
-                            load_in_4bit=True, 
-                            bnb_4bit_quant_type="nf4", 
-                            bnb_4bit_compute_dtype=torch.bfloat16
-                        )
-                        reasoning_model = AutoModelForCausalLM.from_pretrained(
-                            selected_model, 
-                            quantization_config=quantization_config, 
-                            device_map="auto",
-                            torch_dtype=torch.bfloat16,
-                            trust_remote_code=True
-                        )
-                        print(f"Quantized Phi-2 model ({selected_model}) loaded successfully.")
-                        
-                    except Exception as quant_error:
-                        print(f"Quantization failed for {selected_model}: {quant_error}")
-                        print("Falling back to standard loading...")
-                        
                         reasoning_model = AutoModelForCausalLM.from_pretrained(
                             selected_model,
                             torch_dtype=torch.float16,
-                            trust_remote_code=True
-                        ).to(DEVICE)
-                        print(f"Standard Phi-2 model ({selected_model}) loaded successfully.")
+                            trust_remote_code=True,
+                            device_map="auto"
+                        )
+                        reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model, trust_remote_code=True)
                         
+                        # Set special tokens for Phi-2
+                        if reasoning_tokenizer.pad_token is None:
+                            reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
+                        
+                        print(f"Phi-2 model ({selected_model}) loaded successfully.")
+                        
+                    except Exception as model_error:
+                        print(f"Error loading Phi-2: {model_error}")
+                                    
                 else:
                     # Default loading
                     try:
@@ -1026,190 +1018,138 @@ def generate_fallback_feature_themes(feature_requests):
     return themes
 
 def generate_feature_themes_with_llm(feature_requests, selected_model=None):
-    """
-    SIMPLIFIED FOR SMALLER LLMS.
-    Categorizes feature requests into simple buckets instead of complex theme generation.
-    """
+    """Simplified feature theme generation for small models."""
     models = get_models(selected_model)
     if not feature_requests:
         return {}
 
-    # Simple categories for small models to use
-    simple_categories = ["UI/Design", "New Feature", "Performance", "Customization"]
+    # Fallback categories
+    themes = {
+        "UI/Design": {'requests': [], 'summary': "Interface and design improvements", 'urgency': 'Medium', 'count': 0},
+        "New Features": {'requests': [], 'summary': "Requested new functionality", 'urgency': 'High', 'count': 0},
+        "Performance": {'requests': [], 'summary': "Speed and reliability improvements", 'urgency': 'Medium', 'count': 0}
+    }
 
-    # Limit to top 20 requests to avoid overwhelming the model
-    request_texts = "\n".join([f"Request: {req['content']}" for req in feature_requests[:20]])
-
-    # A simple categorization prompt
-    prompt = f"""
-Here are some user feature requests. Categorize each one into one of the following categories: {', '.join(simple_categories)}.
-
-{request_texts}
-
-Categories:
-"""
-    # The prompt asks the model to fill in the categories for the requests it sees.
-
-    print(f"#Feature Themes Prompt (Simplified): {prompt}")
-    try:
-        response_text = generate_response(
-            models['reasoning_model'],
-            models['reasoning_tokenizer'],
-            prompt,
-            max_length=300
-        )
-        print(f"#Feature Themes Response: {response_text}")
-
-        # --- Simple Parsing and Grouping ---
-        # Create a dictionary to hold the categorized requests
-        themes = {category: {'requests': [], 'summary': f"Requests related to {category}.", 'urgency': 'Medium', 'count': 0} for category in simple_categories}
+    # Simple keyword-based categorization
+    for req in feature_requests[:20]:
+        content_lower = req['content'].lower()
         
-        # Go through each original request and assign it to a category found in the response
-        response_lower = response_text.lower()
-        for request in feature_requests[:20]:
-            content_lower = request['content'].lower()
-            
-            # Basic keyword matching as a fallback and initial assignment
-            if any(kw in content_lower for kw in ['ui', 'design', 'look', 'color', 'layout']):
-                themes['UI/Design']['requests'].append(request)
-            elif any(kw in content_lower for kw in ['slow', 'fast', 'bug', 'crash']):
-                themes['Performance']['requests'].append(request)
-            elif any(kw in content_lower for kw in ['option', 'setting', 'personalize', 'custom']):
-                 themes['Customization']['requests'].append(request)
-            else:
-                themes['New Feature']['requests'].append(request)
+        if any(kw in content_lower for kw in ['design', 'ui', 'interface', 'look', 'theme', 'color']):
+            themes['UI/Design']['requests'].append(req)
+        elif any(kw in content_lower for kw in ['slow', 'fast', 'crash', 'bug', 'performance']):
+            themes['Performance']['requests'].append(req)
+        else:
+            themes['New Features']['requests'].append(req)
 
-        # Update counts and remove empty themes
-        for theme_name in list(themes.keys()):
-            themes[theme_name]['count'] = len(themes[theme_name]['requests'])
-            if themes[theme_name]['count'] == 0:
-                del themes[theme_name]
+    # Update counts and remove empty themes
+    for theme_name in list(themes.keys()):
+        themes[theme_name]['count'] = len(themes[theme_name]['requests'])
+        if themes[theme_name]['count'] == 0:
+            del themes[theme_name]
 
-        print(f"Simplified feature themes generated: {[(name, data['count']) for name, data in themes.items()]}")
-        return themes
-
-    except Exception as e:
-        print(f"Error in simplified feature theme generation: {e}")
-        # Fallback to the original rule-based method if AI fails
-        return generate_fallback_feature_themes(feature_requests)
-        
-def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
+    print(f"Feature themes generated: {[(name, data['count']) for name, data in themes.items()]}")
+    return themes
     
+def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
     models = get_models(selected_model)
     if not reviews:
         return "No reviews available for this category."
 
-    # --- Smart Rule-Based Fallback ---
-    # This will be our default if the AI fails.
+    # Rule-based fallback
     top_review_snippets = [f"• \"{truncate_review_content(r['content'], 80)}\"" for r in reviews[:2]]
-    fallback_summary = f"Key themes mentioned by users include:\n" + "\n".join(top_review_snippets)
+    fallback_summary = "Key themes: " + "; ".join([snippet.replace('• "', '').replace('"', '') for snippet in top_review_snippets])
 
-    # --- AI Keyword Extraction (Simplified Task) ---
-    review_texts = "\n".join([f"- {r['content']}" for r in reviews[:5]])
-    sentiment_type = "positive feedback" if is_positive else "complaints"
-
-    # The simplest possible prompt: ask for keywords.
-    prompt = f"""
-User {sentiment_type} about "{category_name}":
-{review_texts}
-
-List 3 to 5 keywords that summarize these reviews:
-"""
-    print(f"#Category Summary Prompt (Keyword Extraction): {prompt}")
+    # Simplified prompt for Phi-2
+    review_texts = "\n".join([f"- {r['content'][:100]}" for r in reviews[:3]])
+    sentiment_type = "positive" if is_positive else "negative"
+    
+    # Direct completion prompt
+    prompt = f"Users have {sentiment_type} feedback about {category_name}:\n{review_texts}\n\nMain themes: "
 
     try:
-        response_text = generate_response(
-            models['reasoning_model'],
-            models['reasoning_tokenizer'],
-            prompt,
-            max_length=40  # Only need a few words
-        )
-        print(f"#Category Summary Response: {response_text}")
+        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt", truncation=True, max_length=400).to(models['device'])
+        with torch.no_grad():
+            outputs = models['reasoning_model'].generate(
+                **inputs,
+                max_new_tokens=30,
+                eos_token_id=models['reasoning_tokenizer'].eos_token_id,
+                pad_token_id=models['reasoning_tokenizer'].eos_token_id,
+                do_sample=True,
+                temperature=0.3
+            )
+        
+        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
+        clear_gpu_cache()
 
-        # --- Validate the AI Output ---
-        # 1. Extract the part after the prompt
-        if "keywords that summarize these reviews:" in response_text:
-            keywords_text = response_text.split("keywords that summarize these reviews:")[-1].strip()
-        else:
-            keywords_text = "" # Invalid response
-
-        # 2. Check if the output is valid
-        # It must not be empty, too short, or contain signs of prompt repetition/garbage.
-        if keywords_text and len(keywords_text) > 5 and "user complaints" not in keywords_text.lower():
-            # AI succeeded! Format the keywords into a nice summary.
-            keywords = re.split(r'[,\n-]', keywords_text)
-            clean_keywords = [kw.strip('* ') for kw in keywords if kw.strip()]
-            ai_summary = f"Common themes identified by AI: {', '.join(clean_keywords[:5])}."
-            print(f"✅ AI Keyword Extraction Successful for {category_name}.")
-            return ai_summary
-        else:
-            # AI failed, use the fallback.
-            print(f"⚠️ AI output for {category_name} was invalid. Using rule-based fallback.")
-            return fallback_summary
+        # Extract only the generated part
+        if "Main themes: " in response_text:
+            themes_text = response_text.split("Main themes: ")[-1].strip()
+            # Clean up and validate
+            if themes_text and len(themes_text) > 5 and not themes_text.lower().startswith("users have"):
+                return f"AI identified themes: {themes_text[:100]}"
+        
+        return fallback_summary
 
     except Exception as e:
-        print(f"Error in AI keyword extraction for {category_name}: {e}. Using rule-based fallback.")
+        print(f"Error in category summary for {category_name}: {e}")
         return fallback_summary
         
 def summarize_with_llm(reviews, selected_model=None):
-    """
-    ROBUST VERSION FOR SMALL LLMS.
-    Generates the main AI Insights. Attempts to use AI for keyword extraction,
-    but falls back to a structured, rule-based brief if AI fails.
-    """
+    """Generate AI insights with better prompt engineering for small models."""
     models = get_models(selected_model)
     if not reviews:
         return markdown2.markdown("#### No critical reviews found to analyze.")
 
-    # --- Smart Rule-Based Fallback ---
-    # This brief will be used if the AI fails.
+    # Smart rule-based fallback
     top_critical_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:3]
     fallback_brief = "#### Top Critical Issues Identified\n\n"
     for i, review in enumerate(top_critical_reviews):
-        fallback_brief += f"**{i+1}. Issue:** Users report problems such as: \"_{truncate_review_content(review['content'], 100)}_\"\n"
-        fallback_brief += f"**Recommendation:** Investigate reports related to performance and feature stability.\n\n"
+        fallback_brief += f"**{i+1}. Issue:** Users report: \"_{truncate_review_content(review['content'], 150)}_\"\n\n"
 
-    # --- AI Keyword Extraction (Simplified Task) ---
-    review_texts = "\n".join([f"- {r['content']}" for r in top_critical_reviews])
-    prompt = f"""
-Here are the most critical user reviews for an app:
-{review_texts}
+    # Simplified prompt for Phi-2
+    review_texts = "\n".join([f"Review: {r['content'][:150]}" for r in top_critical_reviews])
+    
+    # Direct instruction format that works better with Phi-2
+    prompt = f"Based on these app reviews, the main problems are:\n{review_texts}\n\nThe top 3 problems are:\n1."
 
-List the top 3 most urgent problem keywords from these reviews:
-"""
-
-    print(f"#AI Insights Prompt (Keyword Extraction): {prompt}")
+    print(f"#AI Insights Prompt: {prompt}")
     try:
-        response_text = generate_response(
-            models['reasoning_model'],
-            models['reasoning_tokenizer'],
-            prompt,
-            max_length=50
-        )
-        print(f"#AI Insights Response: {response_text}")
+        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt", truncation=True, max_length=512).to(models['device'])
+        with torch.no_grad():
+            outputs = models['reasoning_model'].generate(
+                **inputs, 
+                max_new_tokens=200,
+                eos_token_id=models['reasoning_tokenizer'].eos_token_id,
+                pad_token_id=models['reasoning_tokenizer'].eos_token_id,
+                do_sample=True,
+                temperature=0.3
+            )
         
-        # --- Validate the AI Output ---
-        if "problem keywords from these reviews:" in response_text:
-            keywords_text = response_text.split("problem keywords from these reviews:")[-1].strip()
-        else:
-            keywords_text = ""
-
-        if keywords_text and len(keywords_text) > 5 and "critical user reviews" not in keywords_text.lower():
-            # AI succeeded! Create a brief from the AI keywords.
-            print("✅ AI Keyword Extraction for Insights Successful.")
-            ai_brief = "#### Top Critical Themes Identified by AI\n\n"
-            keywords = re.split(r'[\n,]', keywords_text)
-            for kw in keywords:
-                if kw.strip():
-                    ai_brief += f"- **Theme:** {kw.strip().strip('1.2.3.- ')}\n"
-                    ai_brief += f"- **Recommendation:** Prioritize investigation into user feedback concerning this area.\n"
-            return markdown2.markdown(ai_brief)
-        else:
-            print("⚠️ AI output for Insights was invalid. Using rule-based fallback.")
-            return markdown2.markdown(fallback_brief)
-
+        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
+        clear_gpu_cache()
+        
+        # Extract only the generated part after the prompt
+        if "The top 3 problems are:\n1." in response_text:
+            generated_part = "1." + response_text.split("The top 3 problems are:\n1.")[-1].strip()
+            
+            # Clean up the response
+            lines = generated_part.split('\n')[:3]  # Take only first 3 lines
+            clean_lines = []
+            for line in lines:
+                if line.strip() and not line.startswith("Review:"):
+                    clean_lines.append(line.strip())
+            
+            if clean_lines:
+                ai_brief = "#### Top Critical Issues Identified by AI\n\n"
+                for line in clean_lines:
+                    ai_brief += f"- {line}\n"
+                return markdown2.markdown(ai_brief)
+        
+        # Fallback if parsing fails
+        return markdown2.markdown(fallback_brief)
+        
     except Exception as e:
-        print(f"Error generating AI insights: {e}. Using rule-based fallback.")
+        print(f"Error generating AI insights: {e}")
         return markdown2.markdown(fallback_brief)
         
 def analyze_reviews_roberta(review_list, selected_model=None):
