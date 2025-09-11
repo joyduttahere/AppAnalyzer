@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.10 - With better prompts for small llm
+# Version 2.11 - Corrected model loading and removed duplicate functions
 
 import os
 import ssl
@@ -13,6 +13,7 @@ import json
 import markdown2
 from pyngrok import ngrok
 import google.generativeai as genai
+
 # SSL Configuration
 try:
     _create_unverified_https_context = ssl._create_unverified_context
@@ -316,27 +317,59 @@ NEGATIVE_INDICATORS_SET = set(NEGATIVE_INDICATORS)
 
 # Use PAIN_POINT_CATEGORIES as TOPIC_CATEGORIES for consistency
 TOPIC_CATEGORIES = PAIN_POINT_CATEGORIES
+# ==============================================================================
+# 2. CORRECTED MODEL LOADING
+# ==============================================================================
 
-# ==============================================================================
-# 2. LAZY LOADING FOR AI MODELS
-# ==============================================================================
-MODELS = None # Global placeholder for our models
-# Global cache for models - now stores multiple models
+# Global cache for models
 MODEL_CACHE = {}
 
-# GPU Avialble
 def get_models(selected_model=None):
-    """Initializes and returns the AI models with updated model selection."""
+    """Initializes and returns the AI models with corrected caching and model selection."""
     global MODEL_CACHE
     
+    # Handle Gemini API selection
     if selected_model is None or selected_model == 'Gemini-API':
+        print(f"Selected AI Model: Gemini-API (cloud-based)")
+        # For Gemini API, we still need the classifier model for sentiment analysis
+        if "classifier" not in MODEL_CACHE:
+            print("Loading Classifier Model for Gemini-API mode...")
+            DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
+                classifier_model = AutoModelForSequenceClassification.from_pretrained(
+                    "cardiffnlp/twitter-roberta-base-sentiment-latest"
+                ).to(DEVICE)
+                print("Classifier model loaded.")
+                
+                MODEL_CACHE["classifier"] = {
+                    'tokenizer': classifier_tokenizer,
+                    'model': classifier_model
+                }
+            except Exception as e:
+                print(f"Error loading classifier model: {e}")
+                raise
+        
+        return {
+            'device': "cuda" if torch.cuda.is_available() else "cpu",
+            'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
+            'classifier_model': MODEL_CACHE["classifier"]['model'],
+            'reasoning_tokenizer': None,  # Not needed for Gemini API
+            'reasoning_model': None,      # Not needed for Gemini API
+            'selected_model': 'Gemini-API'
+        }
+    
+    # For local models, set default if none specified
+    if selected_model is None:
         selected_model = "microsoft/DialoGPT-medium"
+    
+    print(f"Selected AI Model: {selected_model} (local)")
     
     cache_key = f"reasoning_{selected_model}"
     
-    # This check now correctly avoids reloading any models if both classifier and the specific reasoning model are cached
+    # Check if both models are already cached
     if "classifier" in MODEL_CACHE and cache_key in MODEL_CACHE:
-        # Return a dictionary compatible with the rest of the app
+        print(f"Models already loaded from cache: classifier + {selected_model}")
         return {
             'device': "cuda" if torch.cuda.is_available() else "cpu",
             'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
@@ -346,11 +379,11 @@ def get_models(selected_model=None):
             'selected_model': MODEL_CACHE[cache_key]['model_name']
         }
     
-    print(f"--- LOADING LOCAL MODEL: {selected_model} ---")
+    print(f"Loading models: classifier + {selected_model}")
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {DEVICE}")
     
-    # Load classifier model once
+    # Load classifier model if not cached
     if "classifier" not in MODEL_CACHE:
         print("Loading Classifier Model...")
         try:
@@ -368,20 +401,19 @@ def get_models(selected_model=None):
             print(f"Error loading classifier model: {e}")
             raise
         
-    # Load reasoning model
+    # Load reasoning model if not cached
     if cache_key not in MODEL_CACHE:
         print(f"Loading Reasoning Model: {selected_model}...")
           
         try:
-            # Use torch_dtype=torch.float16 for smaller models for better performance and memory usage
-            # Use trust_remote_code=True for models like Phi-2
-            
-            # --- Unified Loading Logic for different model types ---
-            
-            # For large, powerful models that support quantization
+            # Unified Loading Logic for different model types
             if any(name in selected_model for name in ["mistral", "SmolLM", "phi-2"]):
                 try:
-                    quant_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)
+                    quant_config = BitsAndBytesConfig(
+                        load_in_4bit=True, 
+                        bnb_4bit_quant_type="nf4", 
+                        bnb_4bit_compute_dtype=torch.bfloat16
+                    )
                     reasoning_model = AutoModelForCausalLM.from_pretrained(
                         selected_model,
                         quantization_config=quant_config,
@@ -397,8 +429,7 @@ def get_models(selected_model=None):
                         device_map="auto",
                         trust_remote_code=True
                     )
-            # For small, simple models
-            else: # Covers distilgpt2, dialogpt, etc.
+            else:  # For smaller models like distilgpt2, dialogpt, etc.
                 reasoning_model = AutoModelForCausalLM.from_pretrained(
                     selected_model,
                     torch_dtype=torch.float16,
@@ -414,11 +445,13 @@ def get_models(selected_model=None):
                 'model': reasoning_model,
                 'model_name': selected_model
             }
+            print(f"Reasoning model {selected_model} loaded and cached.")
+            
         except Exception as e:
             print(f"CRITICAL ERROR loading reasoning model {selected_model}: {e}")
-            raise # Stop execution if a model fails to load
+            raise
 
-    print("--- MODEL LOADING COMPLETE ---")
+    print("Model loading complete.")
     return {
         'device': DEVICE,
         'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
@@ -552,7 +585,6 @@ def identify_feature_requests(review_list):
         content_lower = review['content'].lower()
         
         # FIRST: Exclude reviews with negative sentiment (< -0.1 threshold)
-        # Feature requests should come from users who generally like the app
         if review['sentiment_score'] < -0.1:
             continue
             
@@ -595,22 +627,40 @@ def identify_feature_requests(review_list):
     print(f"Identified {len(feature_requests)} constructive feature requests (excluding negative reviews)")
     return feature_requests
 
+def generate_gemini_response(prompt_text):
+    """Sends a prompt to the Gemini API and returns the text response."""
+    try:
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        if not gemini_api_key:
+            print("⚠️ Gemini API key not found in environment variables. Using fallback.")
+            return None
+
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt_text)
+
+        if not response.parts:
+            print("⚠️ Gemini API response was blocked or empty.")
+            return None
+
+        return response.text
+
+    except Exception as e:
+        print(f"❌ An error occurred while calling the Gemini API: {e}")
+        return None
+
 def generate_feature_themes_with_llm(feature_requests, selected_model=None):
-    """Use LLM to generate themes and summaries for feature requests."""
-    models = get_models(selected_model)
-    print("Generating LLM Response from feature requests:")
+    """Generate feature themes using either Gemini API or local LLM."""
     if not feature_requests:
         print("DEBUG: No feature requests provided to generate_feature_themes_with_llm")
         return {}
     
     print(f"DEBUG: Processing {len(feature_requests)} feature requests")
-    print(f"DEBUG: First request structure: {feature_requests[0] if feature_requests else 'None'}")
     
     # Prepare feature request texts for analysis
     request_texts = []
     for i, req in enumerate(feature_requests[:50]):  # Limit to top 50 for efficiency
         try:
-            # Handle different possible structures
             if isinstance(req, dict):
                 if 'content' in req:
                     content = req['content']
@@ -633,77 +683,101 @@ def generate_feature_themes_with_llm(feature_requests, selected_model=None):
             request_texts.append(f"{i+1}. (unknown user) Error processing request")
     
     combined_requests = "\n".join(request_texts)
-    print(f"DEBUG: Prepared {len(request_texts)} request texts for LLM")
+    print(f"DEBUG: Prepared {len(request_texts)} request texts for analysis")
     
-    prompt = f"""<s>[INST] You are a Senior Product Manager analyzing user feature requests.
-Your task is to analyze the following feature requests in 400 words. identify the main themes/categories and summarize. 
+    # Route to appropriate model
+    if selected_model == 'Gemini-API':
+        print("Routing to Gemini API for feature theme analysis...")
+        prompt = f"""You are a Senior Product Manager analyzing user feature requests.
+Analyze the following feature requests and identify the main themes/categories in 400 words.
 
-For each theme you identify:
-1. Create a clear, descriptive theme name (e.g., "Data Export & Backup", "User Interface Customization", "Integration & Connectivity")
+For each theme:
+1. Create a clear theme name (e.g., "Data Export & Backup")
 2. List the request numbers that belong to this theme
-3. Write a 2-3 sentence summary of what users are asking for in this theme
-4. Rate the urgency as "High", "Medium", or "Low" based on the frequency and sentiment
+3. Write a 2-3 sentence summary
+4. Rate urgency as "High", "Medium", or "Low"
 
-Here are the feature requests:
+Feature requests:
 {combined_requests}
 
-Please format your response as:
+Format:
 **Theme Name**: App Interface [Request count: 3]
 Summary: [2-3 sentence description]
-Urgency: [High/Medium/Low]
+Urgency: [High/Medium/Low]"""
 
+        ai_response = generate_gemini_response(prompt)
+        if ai_response:
+            themes = parse_llm_feature_themes(ai_response, feature_requests)
+            if themes:
+                return themes
+        
+        # Fallback if Gemini fails
+        print("DEBUG: Gemini API failed, using fallback")
+        return generate_fallback_feature_themes(feature_requests)
+    
+    else:
+        # Use local LLM
+        print(f"Routing to local LLM ({selected_model}) for feature theme analysis...")
+        models = get_models(selected_model)
+        
+        prompt = f"""<s>[INST] You are analyzing user feature requests.
+Identify main themes from these requests in 400 words:
+
+{combined_requests}
+
+Format each theme as:
+**Theme**: Name
+Summary: Description
+Urgency: High/Medium/Low
 [/INST]
-**Feature Request Analysis:**"""
-    print(f"#Feature request prompt: {prompt}")
-    try:
-        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
-        with torch.no_grad():
-            outputs = models['reasoning_model'].generate(**inputs, max_new_tokens=400, eos_token_id=models['reasoning_tokenizer'].eos_token_id, pad_token_id=models['reasoning_tokenizer'].eos_token_id)
-        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
-        clear_gpu_cache()
-        print(f"#Feature request response: {response_text}")
-        # Extract the analysis
-        if "**Feature Request Analysis:**" in response_text:
-            analysis_text = response_text.split("**Feature Request Analysis:**")[-1].strip()
-        else:
-            analysis_text = response_text.split("[/INST]")[-1].strip()
+**Feature Analysis:**"""
+
+        try:
+            inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt").to(models['device'])
+            with torch.no_grad():
+                outputs = models['reasoning_model'].generate(
+                    **inputs, 
+                    max_new_tokens=400, 
+                    eos_token_id=models['reasoning_tokenizer'].eos_token_id, 
+                    pad_token_id=models['reasoning_tokenizer'].eos_token_id
+                )
+            response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
+            clear_gpu_cache()
+            
+            # Extract analysis
+            if "**Feature Analysis:**" in response_text:
+                analysis_text = response_text.split("**Feature Analysis:**")[-1].strip()
+            else:
+                analysis_text = response_text.split("[/INST]")[-1].strip()
+            
+            print(f"DEBUG: LLM Analysis Response: {analysis_text}")
+            
+            # Parse the response
+            themes = parse_llm_feature_themes(analysis_text, feature_requests)
+            if themes:
+                return themes
+            
+        except Exception as e:
+            print(f"DEBUG: Error in local LLM feature analysis: {e}")
         
-        print(f"DEBUG: LLM Analysis Response: {analysis_text}")
-        #print(analysis_text[:500] + "..." if len(analysis_text) > 500 else analysis_text)
-        
-        # Parse the LLM response to create structured themes
-        themes = parse_llm_feature_themes(analysis_text, feature_requests)
-        
-        # If parsing failed or returned empty themes, use fallback
-        if not themes:
-            print("DEBUG: LLM parsing returned empty themes, using fallback")
-            return generate_fallback_feature_themes(feature_requests)
-        
-        return themes
-        
-    except Exception as e:
-        print(f"DEBUG: Error in LLM feature analysis: {e}")
-        import traceback
-        traceback.print_exc()
-        # Fallback to rule-based themes
+        # Fallback for local LLM
         return generate_fallback_feature_themes(feature_requests)
 
 def parse_llm_feature_themes(llm_response, feature_requests=None):
     """Parse LLM response to extract feature themes."""
-    theme_sections = {}  # Changed to dict to match later usage
-    print("LLM Response for New features:")
+    theme_sections = {}
+    print("LLM Response for feature themes:")
     print(llm_response)
     
     if not feature_requests:
         print("ERROR: No feature_requests provided to parse_llm_feature_themes")
         return {}    
     
-    # First, extract theme sections from LLM response
-    temp_sections = []  # Temporary list for parsing
+    # Extract theme sections from LLM response
+    temp_sections = []
     
     # Pattern 1: **Theme Name**: Actual Theme Name format
     if '**' in llm_response:
-        # Updated pattern to handle **Theme Name**: Actual Theme Name
         pattern = r'\*\*Theme Name\*\*:\s*([^\n]+)\n(.*?)(?=\*\*Theme Name\*\*:|$)'
         matches = re.findall(pattern, llm_response, re.DOTALL)
         
@@ -713,14 +787,13 @@ def parse_llm_feature_themes(llm_response, feature_requests=None):
             if theme_name and theme_content:
                 temp_sections.append((theme_name, theme_content))
         
-        # Fallback to original pattern if the new one doesn't work
+        # Fallback to original pattern
         if not temp_sections:
             sections = re.split(r'\*\*([^*]+)\*\*', llm_response)
             for i in range(1, len(sections), 2):
                 if i + 1 < len(sections):
                     theme_name = sections[i].strip()
                     theme_content = sections[i + 1].strip()
-                    # Skip if theme_name is just "Theme Name"
                     if theme_name and theme_content and theme_name != "Theme Name":
                         temp_sections.append((theme_name, theme_content))
     
@@ -763,7 +836,7 @@ def parse_llm_feature_themes(llm_response, feature_requests=None):
         if current_theme and current_content:
             temp_sections.append((current_theme, '\n'.join(current_content)))
 
-    print(f"DEBUG: Found {len(temp_sections)} theme sections using flexible parsing")
+    print(f"DEBUG: Found {len(temp_sections)} theme sections")
 
     if not temp_sections:
         print("FALLBACK: Could not parse any themes, using fallback")
@@ -771,12 +844,11 @@ def parse_llm_feature_themes(llm_response, feature_requests=None):
     
     # Process each theme section
     for theme_name, theme_content in temp_sections:
-        print(f"DEBUG: Processing theme '{theme_name}' with content: {theme_content[:250]}...")
+        print(f"DEBUG: Processing theme '{theme_name}'")
         
         # Extract summary
         summary_match = re.search(r'Summary:\s*(.*?)(?=\n\s*(Urgency|Request|$))', theme_content, re.DOTALL | re.IGNORECASE)
         if not summary_match:
-            # Try to find any descriptive text
             lines = [line.strip() for line in theme_content.split('\n') if line.strip() and not line.strip().startswith('Request') and not line.strip().startswith('Urgency')]
             summary_text = lines[0] if lines else theme_content[:250]
         else:
@@ -786,31 +858,26 @@ def parse_llm_feature_themes(llm_response, feature_requests=None):
         urgency_match = re.search(r'Urgency:\s*(.*?)(?=\n|$)', theme_content, re.IGNORECASE)
         urgency_text = urgency_match.group(1).strip() if urgency_match else "Medium"
         
-        # Extract request numbers - try multiple patterns
+        # Extract request numbers
         mapped_requests = []
         request_nums = []
         
-        # Pattern 1: [Request numbers: 1, 3, 5]
         requests_match = re.search(r'Request\s+numbers?:?\s*\[?([\d,\s\-]+)\]?', theme_content, re.IGNORECASE)
         if requests_match:
             numbers_str = requests_match.group(1).strip().rstrip(',')
             request_nums = [int(num.strip()) for num in re.split(r'[,\s]+', numbers_str) if num.strip().isdigit()]
         
-        # Pattern 2: Look for standalone numbers in the content
         if not request_nums:
             request_nums = [int(num) for num in re.findall(r'\b(\d+)\b', theme_content) 
                           if 1 <= int(num) <= len(feature_requests)]
-        
-        print(f"DEBUG: Theme '{theme_name}' - Found request numbers: {request_nums}")
         
         # Map numbers to actual requests
         for num in request_nums:
             if 1 <= num <= len(feature_requests):
                 mapped_requests.append(feature_requests[num - 1])
         
-        # If no specific numbers found, assign some requests based on content similarity
+        # If no specific numbers found, assign some requests as samples
         if not mapped_requests and len(feature_requests) > 0:
-            # Take first few requests as samples (this is a fallback)
             num_samples = min(3, len(feature_requests))
             mapped_requests = feature_requests[:num_samples]
             print(f"DEBUG: No specific numbers found for '{theme_name}', using {num_samples} sample requests")
@@ -818,7 +885,7 @@ def parse_llm_feature_themes(llm_response, feature_requests=None):
         request_count = len(mapped_requests)
         print(f"DEBUG: Theme '{theme_name}': Mapped {request_count} requests")
 
-        # Store in theme_sections dict (this was the issue)
+        # Store in theme_sections dict
         theme_sections[theme_name] = {
             'requests': mapped_requests,
             'summary': summary_text,
@@ -826,13 +893,13 @@ def parse_llm_feature_themes(llm_response, feature_requests=None):
             'count': request_count
         }
 
-    print(f"DEBUG: Successfully parsed {len(theme_sections)} themes with counts: {[(name, data['count']) for name, data in theme_sections.items()]}")
+    print(f"DEBUG: Successfully parsed {len(theme_sections)} themes")
     return theme_sections
     
 def generate_fallback_feature_themes(feature_requests):
     """Fallback method to generate feature themes when LLM fails."""
     if not feature_requests:
-        return {}  # Changed from [] to {} for consistency
+        return {}
     
     # Simple keyword-based grouping
     themes = {
@@ -875,124 +942,44 @@ def generate_fallback_feature_themes(feature_requests):
         theme_data['count'] = len(theme_data['requests'])
         if theme_data['count'] == 0:
             del themes[theme_name]
-        else:
-            # Add sample requests for display
-            theme_data['sample_requests'] = []
-            for req in theme_data['requests'][:3]:
-                sample_text = req['content'][:250] + '...' if len(req['content']) > 250 else req['content']
-                theme_data['sample_requests'].append({
-                    'review': {'display_content': sample_text},
-                    'content': sample_text
-                })
     
     print(f"Fallback themes generated: {[(name, data['count']) for name, data in themes.items()]}")
     return themes
-
-def generate_gemini_response(prompt_text):
-    """
-    Sends a prompt to the Gemini API and returns the text response.
-    Handles API key configuration and error handling.
-    """
-    try:
-        # Get the API key from the environment variable set in the Colab cell
-        gemini_api_key = os.environ.get('GEMINI_API_KEY')
-        if not gemini_api_key:
-            print("⚠️ Gemini API key not found in environment variables. Using fallback.")
-            return None # Return None to signal failure
-
-        # Configure the Gemini client
-        genai.configure(api_key=gemini_api_key)
-
-        # Create the model - gemini-1.5-flash is fast and powerful
-        model = genai.GenerativeModel('gemini-1.5-flash')
-
-        # Generate the content
-        response = model.generate_content(prompt_text)
-
-        # Check for safety ratings or blocks
-        if not response.parts:
-            print("⚠️ Gemini API response was blocked or empty.")
-            return None
-
-        return response.text
-
-    except Exception as e:
-        print(f"❌ An error occurred while calling the Gemini API: {e}")
-        return None # Return None to signal failure
-
-def generate_feature_themes_with_llm(feature_requests, selected_model=None):
-    """Simplified feature theme generation for small models."""
-    models = get_models(selected_model)
-    if not feature_requests:
-        return {}
-
-    # Fallback categories
-    themes = {
-        "UI/Design": {'requests': [], 'summary': "Interface and design improvements", 'urgency': 'Medium', 'count': 0},
-        "New Features": {'requests': [], 'summary': "Requested new functionality", 'urgency': 'High', 'count': 0},
-        "Performance": {'requests': [], 'summary': "Speed and reliability improvements", 'urgency': 'Medium', 'count': 0}
-    }
-
-    # Simple keyword-based categorization
-    for req in feature_requests[:20]:
-        content_lower = req['content'].lower()
         
-        if any(kw in content_lower for kw in ['design', 'ui', 'interface', 'look', 'theme', 'color']):
-            themes['UI/Design']['requests'].append(req)
-        elif any(kw in content_lower for kw in ['slow', 'fast', 'crash', 'bug', 'performance']):
-            themes['Performance']['requests'].append(req)
-        else:
-            themes['New Features']['requests'].append(req)
-
-    # Update counts and remove empty themes
-    for theme_name in list(themes.keys()):
-        themes[theme_name]['count'] = len(themes[theme_name]['requests'])
-        if themes[theme_name]['count'] == 0:
-            del themes[theme_name]
-
-    print(f"Feature themes generated: {[(name, data['count']) for name, data in themes.items()]}")
-    return themes
-    
 def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    """
-    MASTER ROUTER for Category Summaries.
-    Delegates the task to either the Gemini API or a local LLM based on user selection.
-    """
-    # --- Universal Rule-Based Fallback ---
+    """Generate category summary using either Gemini API or local LLM."""
+    # Universal fallback
     top_review_snippets = [f"• \"{truncate_review_content(r['content'], 180)}\"" for r in reviews[:2]]
     fallback_summary = f"Key themes mentioned by users include:\n" + "\n".join(top_review_snippets)
 
     if selected_model == "Gemini-API":
-        # --- PATH 1: Use Gemini API for High-Quality Summaries ---
         print(f"Routing to Gemini API for {category_name} summary...")
         review_texts = "\n".join([f"- {r['content']}" for r in reviews[:15]])
         sentiment_type = "positive feedback" if is_positive else "user complaints"
         
-        prompt = f"""
-Analyze the following user {sentiment_type} regarding "{category_name}".
+        prompt = f"""Analyze the following user {sentiment_type} regarding "{category_name}".
 Write a concise, one-paragraph summary (about 40-60 words) of the main themes.
 
 User Reviews:
 {review_texts}
 
-Summary:
-"""
+Summary:"""
+        
         ai_summary = generate_gemini_response(prompt)
         return ai_summary if ai_summary else fallback_summary
 
     else:
-        # --- PATH 2: Use Local LLM for Keyword Extraction ---
         print(f"Routing to Local LLM ({selected_model}) for {category_name} summary...")
         models = get_models(selected_model)
-        if not reviews: return "No reviews for this category."
+        if not reviews: 
+            return "No reviews for this category."
 
         review_texts = "\n".join([f"- {r['content']}" for r in reviews[:10]])
         
-        prompt = f"""
-Reviews about "{category_name}":
+        prompt = f"""Reviews about "{category_name}":
 {review_texts}
-Summary Keywords:
-"""
+Summary Keywords:"""
+        
         response_text = generate_response(models['reasoning_model'], models['reasoning_tokenizer'], prompt, max_length=400)
         
         # Validate and parse the local model's response
@@ -1003,14 +990,11 @@ Summary Keywords:
                 clean_keywords = [kw.strip('* "') for kw in keywords if len(kw.strip()) > 2]
                 return f"Common themes identified: {', '.join(clean_keywords[:5])}."
 
-        return fallback_summary # Use fallback if local model fails
+        return fallback_summary
         
 def summarize_with_llm(reviews, selected_model=None):
-    """
-    MASTER ROUTER for AI Insights.
-    Delegates the task to either the Gemini API or a local LLM.
-    """
-    # --- Universal Rule-Based Fallback ---
+    """Generate AI insights using either Gemini API or local LLM."""
+    # Universal fallback
     top_critical_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:3]
     fallback_brief = "#### Top Critical Issues Identified\n\n"
     for i, review in enumerate(top_critical_reviews):
@@ -1018,11 +1002,9 @@ def summarize_with_llm(reviews, selected_model=None):
         fallback_brief += f"**Recommendation:** Investigate reports related to performance and feature stability.\n\n"
         
     if selected_model == "Gemini-API":
-        # --- PATH 1: Use Gemini API for High-Quality Brief ---
         print("Routing to Gemini API for AI Insights brief...")
         review_texts = "\n".join([f"- {r['content']}" for r in top_critical_reviews])
-        prompt = f"""
-You are a Senior Product Analyst. Analyze these critical user reviews and create a product development brief.
+        prompt = f"""You are a Senior Product Analyst. Analyze these critical user reviews and create a product development brief.
 Identify the top 2-3 most critical themes. For each theme, provide a one-sentence problem statement and two actionable recommendations.
 
 User Reviews:
@@ -1032,24 +1014,23 @@ Format your response in Markdown like this:
 **1. Theme Name (e.g., Notification Failures)**
 **Problem:** [One-sentence problem statement]
 - **Recommendation:** [Actionable suggestion 1]
-- **Recommendation:** [Actionable suggestion 2]
-"""
+- **Recommendation:** [Actionable suggestion 2]"""
+
         ai_brief = generate_gemini_response(prompt)
         return markdown2.markdown(ai_brief) if ai_brief else markdown2.markdown(fallback_brief)
 
     else:
-        # --- PATH 2: Use Local LLM for Simple Problem Listing ---
         print(f"Routing to Local LLM ({selected_model}) for AI Insights brief...")
         models = get_models(selected_model)
-        if not reviews: return markdown2.markdown("#### No critical reviews found.")
+        if not reviews: 
+            return markdown2.markdown("#### No critical reviews found.")
 
         review_texts = "\n".join([f"- {r['content']}" for r in top_critical_reviews])
-        prompt = f"""
-Critical Reviews:
+        prompt = f"""Critical Reviews:
 {review_texts}
 Top 3 Problems:
-1. 
-"""
+1. """
+        
         response_text = generate_response(models['reasoning_model'], models['reasoning_tokenizer'], prompt, max_length=80)
         
         # Validate and parse the local model's response
@@ -1063,11 +1044,11 @@ Top 3 Problems:
                     ai_brief += f"- **Recommendation:** Prioritize investigation into this area.\n"
                 return markdown2.markdown(ai_brief)
 
-        return markdown2.markdown(fallback_brief) # Use fallback if local model fails
+        return markdown2.markdown(fallback_brief)
         
 def analyze_reviews_roberta(review_list, selected_model=None):
     """Analyze reviews using RoBERTa sentiment analysis with dynamic model selection."""
-    models = get_models(selected_model)  # Pass the selected model
+    models = get_models(selected_model)
 
     if not review_list:
         return {
@@ -1075,7 +1056,7 @@ def analyze_reviews_roberta(review_list, selected_model=None):
             'attention_reviews': [], 'praise_reviews': [], 'total_review_count': 0
         }
 
-    # Filter out reviews with empty or invalid content at the very beginning
+    # Filter out reviews with empty or invalid content
     valid_reviews = [r for r in review_list if r and isinstance(r.get('content'), str) and r.get('content').strip()]
 
     if not valid_reviews:
@@ -1091,7 +1072,7 @@ def analyze_reviews_roberta(review_list, selected_model=None):
 
     print(f"Analyzing sentiment with model: {models.get('selected_model', 'Unknown')}...")
 
-    # Process reviews in batches
+    # Process reviews in batches for sentiment analysis
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         inputs = models['classifier_tokenizer'](batch, return_tensors='pt', padding=True, truncation=True, max_length=512).to(models['device'])
@@ -1128,22 +1109,19 @@ def analyze_reviews_roberta(review_list, selected_model=None):
     POSITIVE_THRESHOLD = 0.2
     NEGATIVE_THRESHOLD = -0.2
 
-    # **FIX**: Initialize all variables that will be populated.
-    pain_points = {}
-    praise_points = {}
-    # Initialize category mentions structure (this part is correct)
+    # Initialize category mentions structure
     category_mentions = {}
     for main_cat, sub_topics in TOPIC_CATEGORIES.items():
         category_mentions[main_cat] = {
             'sub_topics': {sub_cat: {
                 'total': 0, 'pos': 0, 'neg': 0, 
-                'negative_reviews': [], # Store ALL negative reviews for this sub-topic
-                'positive_reviews': []  # Store ALL positive reviews for this sub-topic
+                'negative_reviews': [],
+                'positive_reviews': []
             } for sub_cat in sub_topics},
             'main_total': 0, 'main_pos': 0, 'main_neg': 0, 'summary': '', 'positive_summary': ''
         }
 
-    # Correctly populate the positive/negative review lists for each category
+    # Populate the positive/negative review lists for each category
     for review in valid_reviews:
         sentiment_score = review['sentiment_score']
         is_pos = sentiment_score > POSITIVE_THRESHOLD
@@ -1157,29 +1135,28 @@ def analyze_reviews_roberta(review_list, selected_model=None):
                     stats['total'] += 1
                     if is_pos:
                         stats['pos'] += 1
-                        stats['positive_reviews'].append(review) # Add to positive list
+                        stats['positive_reviews'].append(review)
                     elif is_neg:
                         stats['neg'] += 1
-                        stats['negative_reviews'].append(review) # Add to negative list
+                        stats['negative_reviews'].append(review)
                     
-                    break # Avoid double counting
+                    break
 
     print("Generating topic summaries with correctly filtered reviews...")
 
-    # *** THE CRITICAL FIX IS HERE ***
-    # Now, generate summaries using ONLY the relevantly filtered reviews
+    # Generate summaries using ONLY the relevantly filtered reviews
     for main_cat, data in category_mentions.items():
         data['main_pos'] = sum(sub['pos'] for sub in data['sub_topics'].values())
         data['main_neg'] = sum(sub['neg'] for sub in data['sub_topics'].values())
         data['main_total'] = data['main_pos'] + data['main_neg']
         
-        # 1. Collect ONLY NEGATIVE reviews for the Pain Point summary
+        # Collect ONLY NEGATIVE reviews for the Pain Point summary
         negative_summary_reviews = [r for sub in data['sub_topics'].values() for r in sub['negative_reviews']]
-        negative_summary_reviews.sort(key=lambda r: r['sentiment_score']) # Sort by most negative
+        negative_summary_reviews.sort(key=lambda r: r['sentiment_score'])
         
-        # 2. Collect ONLY POSITIVE reviews for the Praise Point summary
+        # Collect ONLY POSITIVE reviews for the Praise Point summary
         positive_summary_reviews = [r for sub in data['sub_topics'].values() for r in sub['positive_reviews']]
-        positive_summary_reviews.sort(key=lambda r: r['sentiment_score'], reverse=True) # Sort by most positive
+        positive_summary_reviews.sort(key=lambda r: r['sentiment_score'], reverse=True)
 
         # Generate negative summary if there are enough negative reviews
         if data['main_neg'] >= 2:
@@ -1189,15 +1166,12 @@ def analyze_reviews_roberta(review_list, selected_model=None):
         if data['main_pos'] >= 2:
             data['positive_summary'] = generate_category_summary(positive_summary_reviews, main_cat, is_positive=True, selected_model=selected_model)
 
-        # --- This part is also for the UI display, not just summaries ---
-        # We also need to populate the display reviews from these filtered lists
+        # Populate display reviews from filtered lists
         for sub_cat_name, sub_cat_data in data['sub_topics'].items():
             sub_cat_data['negative_reviews_for_display'] = sorted(sub_cat_data['negative_reviews'], key=lambda r: r['sentiment_score'])[:3]
             sub_cat_data['positive_reviews_for_display'] = sorted(sub_cat_data['positive_reviews'], key=lambda r: r['sentiment_score'], reverse=True)[:3]
             
-    # *** THE SECOND CRITICAL FIX IS HERE ***
-    # Correctly define Pain Points and Praise Points based on the majority sentiment
-    
+    # Define Pain Points and Praise Points based on majority sentiment
     pain_points = {
         cat_name: cat_data for cat_name, cat_data in category_mentions.items()
         if cat_data['main_neg'] > cat_data['main_pos'] and cat_data['main_neg'] > 0
@@ -1212,7 +1186,7 @@ def analyze_reviews_roberta(review_list, selected_model=None):
     total_sentiment = sum(r['sentiment_score'] for r in valid_reviews)
     avg_sentiment_score = ((total_sentiment / len(valid_reviews)) + 1) * 2.5 if valid_reviews else 0
 
-    # Get the final lists of all positive/negative reviews
+    # Get final lists of all positive/negative reviews
     all_attention_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] < NEGATIVE_THRESHOLD],
                                  key=lambda r: r['sentiment_score'])
     all_praise_reviews = sorted([r for r in valid_reviews if r['sentiment_score'] > POSITIVE_THRESHOLD],
@@ -1237,7 +1211,6 @@ def generate_response(model, tokenizer, prompt, max_length=400):
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
     with torch.no_grad():
-        # Generate output with sampling for more creative and less repetitive responses
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_length,
@@ -1250,7 +1223,8 @@ def generate_response(model, tokenizer, prompt, max_length=400):
     
     response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
     clear_gpu_cache()
-    return response_text    
+    return response_text
+
 def find_proof_reviews(reviews, category, limit=3):
     """Find proof reviews for a specific category."""
     proof = []
@@ -1270,15 +1244,14 @@ def find_proof_reviews(reviews, category, limit=3):
     return proof
 
 def generate_structured_insights(analysis_present, analysis_previous, reviews_present_all, selected_model=None):
-    # This call now correctly passes the parameter
+    """Generate structured insights with corrected model parameter passing."""
+    # This call now correctly passes the selected_model parameter
     feature_summary = summarize_with_llm(analysis_present['attention_reviews'], selected_model)
-    print("###")
+    print("AI Summary generated:")
     print(feature_summary)
+    
     pp_present = analysis_present['pain_points']
     pp_previous = analysis_previous['pain_points']
-    
-    # [Rest of the function remains the same...]
-    # [All existing logic continues unchanged...]
     
     # Introduce a significance threshold
     significance_threshold = max(2, analysis_present.get('total_review_count', 100) // 50)
@@ -1316,22 +1289,22 @@ def generate_structured_insights(analysis_present, analysis_previous, reviews_pr
     feature_insights = {}
     feature_executive_summary = ""
 
-    # 1. Identify all potential feature requests from the entire review pool
+    # Identify all potential feature requests from the entire review pool
     feature_requests = identify_feature_requests(reviews_present_all)
     
     print(f"Found {len(feature_requests)} potential feature requests.")
     feature_themes = {}
     if feature_requests:
         print("Generating feature themes with LLM...")
-        # 2. Use the LLM to generate themes from these requests
+        # Use the LLM to generate themes from these requests
         feature_themes = generate_feature_themes_with_llm(feature_requests, selected_model)
     
-    # 4. Correctly add the parsed themes to the final insights object
+    # Return structured insights
     return {
         "persisting_problems": persisting_problems,
         "newly_surfaced_problems": newly_surfaced_problems,
         "resolved_problems": resolved_problems,
-        "feature_ideas": feature_themes, # This is the key that the template expects
+        "feature_ideas": feature_themes,
         "ai_summary": feature_summary
     }
 
@@ -1448,9 +1421,13 @@ def analyze_route():
         app_id = data.get('app_id')
         date_range_1_str = data.get('date_range_1')
         date_range_2_str = data.get('date_range_2')
-        selected_model = data.get('ai_model', 'microsoft/phi-2')  # NEW: Get selected model
+        selected_model = data.get('ai_model', 'microsoft/phi-2')
         
-        print(f"Selected AI Model: {selected_model}")
+        # Corrected print statement for selected model
+        if selected_model == 'Gemini-API':
+            print(f"Selected AI Model: {selected_model} (cloud-based)")
+        else:
+            print(f"Selected AI Model: {selected_model} (local)")
         
         # Parse date ranges
         s1, e1 = parse_date_range_string(date_range_1_str)
@@ -1476,17 +1453,17 @@ def analyze_route():
         ]
 
         print("Analyzing present reviews...")
-        analysis_present = analyze_reviews_roberta(reviews_present_all, selected_model)  # NEW: Pass model
+        analysis_present = analyze_reviews_roberta(reviews_present_all, selected_model)
         
         print("Analyzing previous reviews...")
-        analysis_previous = analyze_reviews_roberta(reviews_previous_all, selected_model)  # NEW: Pass model
+        analysis_previous = analyze_reviews_roberta(reviews_previous_all, selected_model)
         
         print("Generating insights...")
         insights = generate_structured_insights(
             analysis_present, 
             analysis_previous, 
             reviews_present_all,
-            selected_model  # NEW: Pass model to insights
+            selected_model
         )
                 
         print("Rendering results...")
@@ -1498,7 +1475,7 @@ def analyze_route():
             count_present=len(reviews_present_all),
             count_previous=len(reviews_previous_all),
             form_data=data,
-            selected_model=selected_model  # NEW: Pass to template
+            selected_model=selected_model
         )
         
         return jsonify({'html': html_result})
