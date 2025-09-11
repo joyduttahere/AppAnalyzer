@@ -468,7 +468,7 @@ def get_models(selected_model=None):
 app = Flask(__name__)
 ngrok_authtoken = os.environ.get('NGROK_AUTHTOKEN')
 
-os.environ['NGROK_AUTHTOKEN'] = ngrok_token
+os.environ['NGROK_AUTHTOKEN'] = ngrok_authtoken
 os.environ['HF_TOKEN'] = hf_token  
 os.environ['GEMINI_API_KEY'] = gemini_key
 
