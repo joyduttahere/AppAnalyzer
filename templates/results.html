@@ -569,7 +569,7 @@
                     <span class="negative-count">{{ analysis_present.attention_reviews|length }} negative</span>
 
 {% if count_present > 0 %}, 
-<span class="negative-percentage">{{ ((analysis_present.attention_reviews|length / count_present) * 100|round(1) }}% Negative reviews</span>
+<span class="negative-percentage">{{ ((analysis_present.attention_reviews|length / count_present) * 100)|round(1) }}% Negative reviews</span>
 {% endif %} 
 
 )
@@ -582,7 +582,7 @@
                     <span class="positive-count">{{ analysis_previous.praise_reviews|length }} positive</span>, 
                     <span class="negative-count">{{ analysis_previous.attention_reviews|length }} negative</span>
 {% if count_previous > 0 %}, 
-<span class="negative-percentage">{{ ((analysis_previous.attention_reviews|length / count_previous) * 100|round(1) }}% Negative reviews</span>
+<span class="negative-percentage">{{ ((analysis_previous.attention_reviews|length / count_previous) * 100)|round(1) }}% Negative reviews</span>
 {% endif %} 
 
 )
