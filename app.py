@@ -323,6 +323,9 @@ TOPIC_CATEGORIES = PAIN_POINT_CATEGORIES
 
 # Global cache for models
 MODEL_CACHE = {}
+# Global cache for reviews
+REVIEW_CACHE = {}
+CACHE_KEY = None  # Current cache identifier
 
 def get_models(selected_model=None):
     """Initializes and returns the AI models with corrected caching and model selection."""
@@ -464,6 +467,16 @@ def get_models(selected_model=None):
 # Flask app initialization
 app = Flask(__name__)
 ngrok_authtoken = os.environ.get('NGROK_AUTHTOKEN')
+
+os.environ['NGROK_AUTHTOKEN'] = ngrok_token
+os.environ['HF_TOKEN'] = hf_token  
+os.environ['GEMINI_API_KEY'] = gemini_key
+
+# Verify they're set
+print("Environment variables set:")
+print(f"NGROK_AUTHTOKEN: {'✓' if os.environ.get('NGROK_AUTHTOKEN') else '✗'}")
+print(f"HF_TOKEN: {'✓' if os.environ.get('HF_TOKEN') else '✗'}")
+print(f"GEMINI_API_KEY: {'✓' if os.environ.get('GEMINI_API_KEY') else '✗'}")
 if ngrok_authtoken:
     ngrok.set_auth_token(ngrok_authtoken)
     print("✅ Ngrok authtoken set successfully.")
@@ -532,6 +545,17 @@ def parse_date_range_string(date_str):
         return start_date, end_date
     except (ValueError, TypeError):
         return None, None
+
+def generate_cache_key(app_id, date_range_1_str, date_range_2_str):
+    """Generate a unique cache key for app_id and date ranges."""
+    return f"{app_id}_{date_range_1_str}_{date_range_2_str}"
+
+def clear_review_cache():
+    """Clear the review cache when parameters change."""
+    global REVIEW_CACHE, CACHE_KEY
+    REVIEW_CACHE.clear()
+    CACHE_KEY = None
+    print("Review cache cleared due to parameter change.")
 
 def truncate_review_content(content, max_chars=250):
     """Truncate review content to specified character limit."""
@@ -1436,21 +1460,45 @@ def analyze_route():
         if not all([app_id, s1, e1, s2, e2]):
             return jsonify({'error': 'Invalid input parameters.'}), 400
         
-        # Determine oldest target date for scraping
-        oldest_target_date = min(s1, s2)
-        
-        print(f"Scraping reviews for {app_id}...")
-        all_reviews = scrape_reviews_until_date(app_id, oldest_target_date)
-        
-        # Filter reviews by date ranges
-        reviews_present_all = [
-            r for r in all_reviews 
-            if s1 <= r['at'] <= e1.replace(hour=23, minute=59)
-        ]
-        reviews_previous_all = [
-            r for r in all_reviews 
-            if s2 <= r['at'] <= e2.replace(hour=23, minute=59)
-        ]
+        # Generate cache key for current request
+        current_cache_key = generate_cache_key(app_id, date_range_1_str, date_range_2_str)
+        global CACHE_KEY
+
+        # Check if we need to clear cache (parameters changed)
+        if CACHE_KEY is not None and CACHE_KEY != current_cache_key:
+            clear_review_cache()
+
+        # Check if reviews are already cached
+        if current_cache_key in REVIEW_CACHE:
+            print(f"Using cached reviews for {app_id} with date ranges {date_range_1_str} and {date_range_2_str}")
+            cached_data = REVIEW_CACHE[current_cache_key]
+            reviews_present_all = cached_data['present']
+            reviews_previous_all = cached_data['previous']
+        else:
+            # Scrape new reviews
+            oldest_target_date = min(s1, s2)
+            print(f"Scraping reviews for {app_id} (not in cache)...")
+            all_reviews = scrape_reviews_until_date(app_id, oldest_target_date)
+    
+            # Filter reviews by date ranges
+            reviews_present_all = [
+                r for r in all_reviews 
+                if s1 <= r['at'] <= e1.replace(hour=23, minute=59)
+            ]
+            reviews_previous_all = [
+                r for r in all_reviews 
+                if s2 <= r['at'] <= e2.replace(hour=23, minute=59)
+            ]
+    
+            # Cache the filtered reviews
+            REVIEW_CACHE[current_cache_key] = {
+                'present': reviews_present_all,
+                'previous': reviews_previous_all
+            }
+            CACHE_KEY = current_cache_key
+            print(f"Reviews cached for future use. Present: {len(reviews_present_all)}, Previous: {len(reviews_previous_all)}")
+
+
 
         print("Analyzing present reviews...")
         analysis_present = analyze_reviews_roberta(reviews_present_all, selected_model)
