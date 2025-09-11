@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.9 - With better prompts for small llm
+# Version 2.10 - With better prompts for small llm
 
 import os
 import ssl
@@ -12,6 +12,7 @@ from flask import Flask, render_template, request, jsonify
 import json
 import markdown2
 from pyngrok import ngrok
+import google.generativeai as genai
 # SSL Configuration
 try:
     _create_unverified_https_context = ssl._create_unverified_context
@@ -328,234 +329,104 @@ def get_models(selected_model=None):
     """Initializes and returns the AI models with updated model selection."""
     global MODEL_CACHE
     
-    if selected_model is None:
-        selected_model = "microsoft/DialoGPT-medium"  # Changed default
+    if selected_model is None or selected_model == 'Gemini-API':
+        selected_model = "microsoft/DialoGPT-medium"
     
     cache_key = f"reasoning_{selected_model}"
     
-    if "classifier" not in MODEL_CACHE or cache_key not in MODEL_CACHE:
-        print(f"--- LOADING MODELS: {selected_model} ---")
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using device: {DEVICE}")
-        
-        # Load classifier model once
-        if "classifier" not in MODEL_CACHE:
-            print("Loading Classifier Model...")
-            try:
-                classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-                classifier_model = AutoModelForSequenceClassification.from_pretrained(
-                    "cardiffnlp/twitter-roberta-base-sentiment-latest"
-                ).to(DEVICE)
-                print("Classifier model loaded.")
-                
-                MODEL_CACHE["classifier"] = {
-                    'tokenizer': classifier_tokenizer,
-                    'model': classifier_model
-                }
-            except Exception as e:
-                print(f"Error loading classifier model: {e}")
-                raise
-        
-        # Load reasoning model
-        if cache_key not in MODEL_CACHE:
-            print(f"Loading Reasoning Model: {selected_model}...")
-            
-            try:
-                reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
-                
-                # Add padding token if missing
-                if reasoning_tokenizer.pad_token is None:
-                    reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
-                
-                # Model-specific loading
-                if "dialo" in selected_model.lower():
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(
-                        selected_model,
-                        torch_dtype=torch.float16,
-                        trust_remote_code=True
-                    ).to(DEVICE)
-                    print(f"DialoGPT model ({selected_model}) loaded successfully.")
-                    
-                elif "distilgpt2" in selected_model.lower():
-                    reasoning_model = AutoModelForCausalLM.from_pretrained(
-                        selected_model,
-                        torch_dtype=torch.float16,
-                        trust_remote_code=True
-                    ).to(DEVICE)
-                    print(f"DistilGPT2 model ({selected_model}) loaded successfully.")
-                    
-                elif "smollm" in selected_model.lower():
-                    try:
-                        quantization_config = BitsAndBytesConfig(
-                            load_in_4bit=True, 
-                            bnb_4bit_quant_type="nf4", 
-                            bnb_4bit_compute_dtype=torch.bfloat16
-                        )
-                        reasoning_model = AutoModelForCausalLM.from_pretrained(
-                            selected_model, 
-                            quantization_config=quantization_config, 
-                            device_map="auto",
-                            torch_dtype=torch.bfloat16,
-                            trust_remote_code=True
-                        )
-                        print(f"Quantized SmolLM model ({selected_model}) loaded successfully.")
-                        
-                    except Exception as quant_error:
-                        print(f"Quantization failed for {selected_model}: {quant_error}")
-                        print("Falling back to standard loading...")
-                        
-                        reasoning_model = AutoModelForCausalLM.from_pretrained(
-                            selected_model,
-                            torch_dtype=torch.float16,
-                            trust_remote_code=True
-                        ).to(DEVICE)
-                        print(f"Standard SmolLM model ({selected_model}) loaded successfully.")
-                        
-                elif "phi-2" in selected_model.lower():
-                    try:
-                        reasoning_model = AutoModelForCausalLM.from_pretrained(
-                            selected_model,
-                            torch_dtype=torch.float16,
-                            trust_remote_code=True,
-                            device_map="auto"
-                        )
-                        reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model, trust_remote_code=True)
-                        
-                        # Set special tokens for Phi-2
-                        if reasoning_tokenizer.pad_token is None:
-                            reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
-                        
-                        print(f"Phi-2 model ({selected_model}) loaded successfully.")
-                        
-                    except Exception as model_error:
-                        print(f"Error loading Phi-2: {model_error}")
-                                    
-                else:
-                    # Default loading
-                    try:
-                        reasoning_model = AutoModelForCausalLM.from_pretrained(
-                            selected_model,
-                            torch_dtype=torch.float16,
-                            trust_remote_code=True
-                        ).to(DEVICE)
-                        print(f"Standard model ({selected_model}) loaded successfully.")
-                        
-                    except Exception as model_error:
-                        print(f"Error loading {selected_model}: {model_error}")
-                        # Fallback to DialoGPT
-                        print("Falling back to DialoGPT...")
-                        selected_model = "microsoft/DialoGPT-medium"
-                        cache_key = f"reasoning_{selected_model}"
-                        
-                        reasoning_model = AutoModelForCausalLM.from_pretrained(
-                            selected_model,
-                            torch_dtype=torch.float16,
-                            trust_remote_code=True
-                        ).to(DEVICE)
-                        reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
-                        if reasoning_tokenizer.pad_token is None:
-                            reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
-                
-                MODEL_CACHE[cache_key] = {
-                    'tokenizer': reasoning_tokenizer,
-                    'model': reasoning_model,
-                    'model_name': selected_model
-                }
-                
-            except Exception as e:
-                print(f"Critical error loading reasoning model {selected_model}: {e}")
-                raise
-        
-        print("--- MODEL LOADING COMPLETE ---")
+    # This check now correctly avoids reloading any models if both classifier and the specific reasoning model are cached
+    if "classifier" in MODEL_CACHE and cache_key in MODEL_CACHE:
+        # Return a dictionary compatible with the rest of the app
+        return {
+            'device': "cuda" if torch.cuda.is_available() else "cpu",
+            'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
+            'classifier_model': MODEL_CACHE["classifier"]['model'],
+            'reasoning_tokenizer': MODEL_CACHE[cache_key]['tokenizer'],
+            'reasoning_model': MODEL_CACHE[cache_key]['model'],
+            'selected_model': MODEL_CACHE[cache_key]['model_name']
+        }
     
-    return {
-        'device': "cuda" if torch.cuda.is_available() else "cpu",
-        'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
-        'classifier_model': MODEL_CACHE["classifier"]['model'],
-        'reasoning_tokenizer': MODEL_CACHE[cache_key]['tokenizer'],
-        'reasoning_model': MODEL_CACHE[cache_key]['model'],
-        'selected_model': MODEL_CACHE[cache_key]['model_name']
-    }
-
-
-"""
-# For TPU:
-def get_models(selected_model=None): #For TPU
-    #Initializes and returns AI models for a TPU environment.
-    #NOTE: Quantization is NOT supported on TPUs.
+    print(f"--- LOADING LOCAL MODEL: {selected_model} ---")
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {DEVICE}")
     
-    global MODEL_CACHE
-    
-    if selected_model is None:
-        selected_model = "microsoft/DialoGPT-large" # Default to a smaller model for TPUs
-    
-    cache_key = f"reasoning_{selected_model}"
-    
-    if "classifier" not in MODEL_CACHE or cache_key not in MODEL_CACHE:
-        print(f"--- LOADING MODELS FOR TPU: {selected_model} ---")
-        
-        # 1. GET THE TPU DEVICE
-        # This is the correct way to get the TPU device.
+    # Load classifier model once
+    if "classifier" not in MODEL_CACHE:
+        print("Loading Classifier Model...")
         try:
-            DEVICE = xm.xla_device()
-            print(f"Using device: TPU ({DEVICE})")
-        except Exception as e:
-            print(f"Failed to get TPU device, falling back to CPU. Error: {e}")
-            DEVICE = torch.device("cpu")
-
-        # 2. LOAD CLASSIFIER MODEL (this part is similar)
-        if "classifier" not in MODEL_CACHE:
-            print("Loading Classifier Model...")
             classifier_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-            # The .to(DEVICE) call now sends it to the TPU.
             classifier_model = AutoModelForSequenceClassification.from_pretrained(
                 "cardiffnlp/twitter-roberta-base-sentiment-latest"
             ).to(DEVICE)
             print("Classifier model loaded.")
-            
+              
             MODEL_CACHE["classifier"] = {
                 'tokenizer': classifier_tokenizer,
                 'model': classifier_model
             }
+        except Exception as e:
+            print(f"Error loading classifier model: {e}")
+            raise
         
-        # 3. LOAD REASONING MODEL (this part is VERY different)
-        if cache_key not in MODEL_CACHE:
-            print(f"Loading Reasoning Model: {selected_model}...")
+    # Load reasoning model
+    if cache_key not in MODEL_CACHE:
+        print(f"Loading Reasoning Model: {selected_model}...")
+          
+        try:
+            # Use torch_dtype=torch.float16 for smaller models for better performance and memory usage
+            # Use trust_remote_code=True for models like Phi-2
             
-            # CRITICAL: REMOVE ALL QUANTIZATION CODE
-            # We must load the full, unquantized model.
+            # --- Unified Loading Logic for different model types ---
             
-            try:
-                reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model)
-                reasoning_model = AutoModelForCausalLM.from_pretrained(selected_model).to(DEVICE)
-                print(f"Standard model ({selected_model}) loaded successfully to TPU.")
-                
-                MODEL_CACHE[cache_key] = {
-                    'tokenizer': reasoning_tokenizer,
-                    'model': reasoning_model,
-                    'model_name': selected_model
-                }
-            except Exception as e:
-                print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                print(f"CRITICAL ERROR: Failed to load {selected_model} onto the TPU.")
-                print(f"This is likely an Out-of-Memory error. The full model is too large.")
-                print(f"Error details: {e}")
-                print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                # Handle the error gracefully, maybe by raising it or setting the model to None
-                raise e # Stop the execution
+            # For large, powerful models that support quantization
+            if any(name in selected_model for name in ["mistral", "SmolLM", "phi-2"]):
+                try:
+                    quant_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)
+                    reasoning_model = AutoModelForCausalLM.from_pretrained(
+                        selected_model,
+                        quantization_config=quant_config,
+                        device_map="auto",
+                        trust_remote_code=True
+                    )
+                    print(f"Loaded {selected_model} with 4-bit quantization.")
+                except Exception as e:
+                    print(f"4-bit quantization failed for {selected_model}: {e}. Falling back to float16.")
+                    reasoning_model = AutoModelForCausalLM.from_pretrained(
+                        selected_model,
+                        torch_dtype=torch.float16,
+                        device_map="auto",
+                        trust_remote_code=True
+                    )
+            # For small, simple models
+            else: # Covers distilgpt2, dialogpt, etc.
+                reasoning_model = AutoModelForCausalLM.from_pretrained(
+                    selected_model,
+                    torch_dtype=torch.float16,
+                    trust_remote_code=True
+                ).to(DEVICE)
+            
+            reasoning_tokenizer = AutoTokenizer.from_pretrained(selected_model, trust_remote_code=True)
+            if reasoning_tokenizer.pad_token is None:
+                reasoning_tokenizer.pad_token = reasoning_tokenizer.eos_token
 
-        print("--- MODEL LOADING COMPLETE ---")
-    
-    # Return the models
+            MODEL_CACHE[cache_key] = {
+                'tokenizer': reasoning_tokenizer,
+                'model': reasoning_model,
+                'model_name': selected_model
+            }
+        except Exception as e:
+            print(f"CRITICAL ERROR loading reasoning model {selected_model}: {e}")
+            raise # Stop execution if a model fails to load
+
+    print("--- MODEL LOADING COMPLETE ---")
     return {
-        'device': xm.xla_device() if "xla" in str(xm.xla_device()) else torch.device("cpu"),
+        'device': DEVICE,
         'classifier_tokenizer': MODEL_CACHE["classifier"]['tokenizer'],
         'classifier_model': MODEL_CACHE["classifier"]['model'],
         'reasoning_tokenizer': MODEL_CACHE[cache_key]['tokenizer'],
         'reasoning_model': MODEL_CACHE[cache_key]['model'],
         'selected_model': MODEL_CACHE[cache_key]['model_name']
     }
-"""
 
 # Flask app initialization
 app = Flask(__name__)
@@ -1017,6 +888,38 @@ def generate_fallback_feature_themes(feature_requests):
     print(f"Fallback themes generated: {[(name, data['count']) for name, data in themes.items()]}")
     return themes
 
+def generate_gemini_response(prompt_text):
+    """
+    Sends a prompt to the Gemini API and returns the text response.
+    Handles API key configuration and error handling.
+    """
+    try:
+        # Get the API key from the environment variable set in the Colab cell
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        if not gemini_api_key:
+            print("⚠️ Gemini API key not found in environment variables. Using fallback.")
+            return None # Return None to signal failure
+
+        # Configure the Gemini client
+        genai.configure(api_key=gemini_api_key)
+
+        # Create the model - gemini-1.5-flash is fast and powerful
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        # Generate the content
+        response = model.generate_content(prompt_text)
+
+        # Check for safety ratings or blocks
+        if not response.parts:
+            print("⚠️ Gemini API response was blocked or empty.")
+            return None
+
+        return response.text
+
+    except Exception as e:
+        print(f"❌ An error occurred while calling the Gemini API: {e}")
+        return None # Return None to signal failure
+
 def generate_feature_themes_with_llm(feature_requests, selected_model=None):
     """Simplified feature theme generation for small models."""
     models = get_models(selected_model)
@@ -1051,106 +954,116 @@ def generate_feature_themes_with_llm(feature_requests, selected_model=None):
     return themes
     
 def generate_category_summary(reviews, category_name, is_positive=False, selected_model=None):
-    models = get_models(selected_model)
-    if not reviews:
-        return "No reviews available for this category."
+    """
+    MASTER ROUTER for Category Summaries.
+    Delegates the task to either the Gemini API or a local LLM based on user selection.
+    """
+    # --- Universal Rule-Based Fallback ---
+    top_review_snippets = [f"• \"{truncate_review_content(r['content'], 180)}\"" for r in reviews[:2]]
+    fallback_summary = f"Key themes mentioned by users include:\n" + "\n".join(top_review_snippets)
 
-    # Rule-based fallback
-    top_review_snippets = [f"• \"{truncate_review_content(r['content'], 80)}\"" for r in reviews[:2]]
-    fallback_summary = "Key themes: " + "; ".join([snippet.replace('• "', '').replace('"', '') for snippet in top_review_snippets])
-
-    # Simplified prompt for Phi-2
-    review_texts = "\n".join([f"- {r['content'][:100]}" for r in reviews[:3]])
-    sentiment_type = "positive" if is_positive else "negative"
-    
-    # Direct completion prompt
-    prompt = f"Users have {sentiment_type} feedback about {category_name}:\n{review_texts}\n\nMain themes: "
-
-    try:
-        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt", truncation=True, max_length=400).to(models['device'])
-        with torch.no_grad():
-            outputs = models['reasoning_model'].generate(
-                **inputs,
-                max_new_tokens=30,
-                eos_token_id=models['reasoning_tokenizer'].eos_token_id,
-                pad_token_id=models['reasoning_tokenizer'].eos_token_id,
-                do_sample=True,
-                temperature=0.3
-            )
+    if selected_model == "Gemini-API":
+        # --- PATH 1: Use Gemini API for High-Quality Summaries ---
+        print(f"Routing to Gemini API for {category_name} summary...")
+        review_texts = "\n".join([f"- {r['content']}" for r in reviews[:15]])
+        sentiment_type = "positive feedback" if is_positive else "user complaints"
         
-        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
-        clear_gpu_cache()
+        prompt = f"""
+Analyze the following user {sentiment_type} regarding "{category_name}".
+Write a concise, one-paragraph summary (about 40-60 words) of the main themes.
 
-        # Extract only the generated part
-        if "Main themes: " in response_text:
-            themes_text = response_text.split("Main themes: ")[-1].strip()
-            # Clean up and validate
-            if themes_text and len(themes_text) > 5 and not themes_text.lower().startswith("users have"):
-                return f"AI identified themes: {themes_text[:100]}"
+User Reviews:
+{review_texts}
+
+Summary:
+"""
+        ai_summary = generate_gemini_response(prompt)
+        return ai_summary if ai_summary else fallback_summary
+
+    else:
+        # --- PATH 2: Use Local LLM for Keyword Extraction ---
+        print(f"Routing to Local LLM ({selected_model}) for {category_name} summary...")
+        models = get_models(selected_model)
+        if not reviews: return "No reviews for this category."
+
+        review_texts = "\n".join([f"- {r['content']}" for r in reviews[:10]])
         
-        return fallback_summary
+        prompt = f"""
+Reviews about "{category_name}":
+{review_texts}
+Summary Keywords:
+"""
+        response_text = generate_response(models['reasoning_model'], models['reasoning_tokenizer'], prompt, max_length=400)
+        
+        # Validate and parse the local model's response
+        if "Summary Keywords:" in response_text:
+            keywords_text = response_text.split("Summary Keywords:")[-1].strip()
+            if keywords_text and len(keywords_text) > 5 and "reviews about" not in keywords_text.lower():
+                keywords = re.split(r'[,\n-]', keywords_text)
+                clean_keywords = [kw.strip('* "') for kw in keywords if len(kw.strip()) > 2]
+                return f"Common themes identified: {', '.join(clean_keywords[:5])}."
 
-    except Exception as e:
-        print(f"Error in category summary for {category_name}: {e}")
-        return fallback_summary
+        return fallback_summary # Use fallback if local model fails
         
 def summarize_with_llm(reviews, selected_model=None):
-    """Generate AI insights with better prompt engineering for small models."""
-    models = get_models(selected_model)
-    if not reviews:
-        return markdown2.markdown("#### No critical reviews found to analyze.")
-
-    # Smart rule-based fallback
+    """
+    MASTER ROUTER for AI Insights.
+    Delegates the task to either the Gemini API or a local LLM.
+    """
+    # --- Universal Rule-Based Fallback ---
     top_critical_reviews = sorted(reviews, key=lambda r: r.get('sentiment_score', 0))[:3]
     fallback_brief = "#### Top Critical Issues Identified\n\n"
     for i, review in enumerate(top_critical_reviews):
-        fallback_brief += f"**{i+1}. Issue:** Users report: \"_{truncate_review_content(review['content'], 150)}_\"\n\n"
-
-    # Simplified prompt for Phi-2
-    review_texts = "\n".join([f"Review: {r['content'][:150]}" for r in top_critical_reviews])
-    
-    # Direct instruction format that works better with Phi-2
-    prompt = f"Based on these app reviews, the main problems are:\n{review_texts}\n\nThe top 3 problems are:\n1."
-
-    print(f"#AI Insights Prompt: {prompt}")
-    try:
-        inputs = models['reasoning_tokenizer'](prompt, return_tensors="pt", truncation=True, max_length=512).to(models['device'])
-        with torch.no_grad():
-            outputs = models['reasoning_model'].generate(
-                **inputs, 
-                max_new_tokens=200,
-                eos_token_id=models['reasoning_tokenizer'].eos_token_id,
-                pad_token_id=models['reasoning_tokenizer'].eos_token_id,
-                do_sample=True,
-                temperature=0.3
-            )
+        fallback_brief += f"**{i+1}. Issue:** Users report problems such as: \"_{truncate_review_content(review['content'], 100)}_\"\n"
+        fallback_brief += f"**Recommendation:** Investigate reports related to performance and feature stability.\n\n"
         
-        response_text = models['reasoning_tokenizer'].decode(outputs[0], skip_special_tokens=True)
-        clear_gpu_cache()
+    if selected_model == "Gemini-API":
+        # --- PATH 1: Use Gemini API for High-Quality Brief ---
+        print("Routing to Gemini API for AI Insights brief...")
+        review_texts = "\n".join([f"- {r['content']}" for r in top_critical_reviews])
+        prompt = f"""
+You are a Senior Product Analyst. Analyze these critical user reviews and create a product development brief.
+Identify the top 2-3 most critical themes. For each theme, provide a one-sentence problem statement and two actionable recommendations.
+
+User Reviews:
+{review_texts}
+
+Format your response in Markdown like this:
+**1. Theme Name (e.g., Notification Failures)**
+**Problem:** [One-sentence problem statement]
+- **Recommendation:** [Actionable suggestion 1]
+- **Recommendation:** [Actionable suggestion 2]
+"""
+        ai_brief = generate_gemini_response(prompt)
+        return markdown2.markdown(ai_brief) if ai_brief else markdown2.markdown(fallback_brief)
+
+    else:
+        # --- PATH 2: Use Local LLM for Simple Problem Listing ---
+        print(f"Routing to Local LLM ({selected_model}) for AI Insights brief...")
+        models = get_models(selected_model)
+        if not reviews: return markdown2.markdown("#### No critical reviews found.")
+
+        review_texts = "\n".join([f"- {r['content']}" for r in top_critical_reviews])
+        prompt = f"""
+Critical Reviews:
+{review_texts}
+Top 3 Problems:
+1. 
+"""
+        response_text = generate_response(models['reasoning_model'], models['reasoning_tokenizer'], prompt, max_length=80)
         
-        # Extract only the generated part after the prompt
-        if "The top 3 problems are:\n1." in response_text:
-            generated_part = "1." + response_text.split("The top 3 problems are:\n1.")[-1].strip()
-            
-            # Clean up the response
-            lines = generated_part.split('\n')[:3]  # Take only first 3 lines
-            clean_lines = []
-            for line in lines:
-                if line.strip() and not line.startswith("Review:"):
-                    clean_lines.append(line.strip())
-            
-            if clean_lines:
-                ai_brief = "#### Top Critical Issues Identified by AI\n\n"
-                for line in clean_lines:
-                    ai_brief += f"- {line}\n"
+        # Validate and parse the local model's response
+        if "Top 3 Problems:" in response_text:
+            summary_text = response_text.split("Top 3 Problems:")[-1].strip()
+            problems = [line.strip() for line in summary_text.split('\n') if len(line.strip()) > 5]
+            if problems:
+                ai_brief = "#### Top Critical Themes Identified by AI\n\n"
+                for prob in problems:
+                    ai_brief += f"- **Theme:** {re.sub(r'^\s*[\d\.\-\*]+\s*', '', prob)}\n"
+                    ai_brief += f"- **Recommendation:** Prioritize investigation into this area.\n"
                 return markdown2.markdown(ai_brief)
-        
-        # Fallback if parsing fails
-        return markdown2.markdown(fallback_brief)
-        
-    except Exception as e:
-        print(f"Error generating AI insights: {e}")
-        return markdown2.markdown(fallback_brief)
+
+        return markdown2.markdown(fallback_brief) # Use fallback if local model fails
         
 def analyze_reviews_roberta(review_list, selected_model=None):
     """Analyze reviews using RoBERTa sentiment analysis with dynamic model selection."""
@@ -1535,7 +1448,7 @@ def analyze_route():
         app_id = data.get('app_id')
         date_range_1_str = data.get('date_range_1')
         date_range_2_str = data.get('date_range_2')
-        selected_model = data.get('ai_model', 'mistralai/Mistral-7B-Instruct-v0.3')  # NEW: Get selected model
+        selected_model = data.get('ai_model', 'microsoft/phi-2')  # NEW: Get selected model
         
         print(f"Selected AI Model: {selected_model}")
         
