@@ -466,23 +466,25 @@ def get_models(selected_model=None):
 
 # Flask app initialization
 app = Flask(__name__)
+
+# Safely set environment variables only if they have values
 ngrok_authtoken = os.environ.get('NGROK_AUTHTOKEN')
-hf_token   = os.environ.get('HF_TOKEN')
-gemini_key  = os.environ.get('GEMINI_API_KEY')
-os.environ['NGROK_AUTHTOKEN'] = ngrok_authtoken
-os.environ['HF_TOKEN'] = hf_token  
-os.environ['GEMINI_API_KEY'] = gemini_key
+hf_token = os.environ.get('HF_TOKEN')
+gemini_key = os.environ.get('GEMINI_API_KEY')
+
+# Only set environment variables if they're not None
+if ngrok_authtoken:
+    os.environ['NGROK_AUTHTOKEN'] = ngrok_authtoken
+if hf_token:
+    os.environ['HF_TOKEN'] = hf_token
+if gemini_key:
+    os.environ['GEMINI_API_KEY'] = gemini_key
 
 # Verify they're set
-print("Environment variables set:")
-print(f"NGROK_AUTHTOKEN: {'✓' if os.environ.get('NGROK_AUTHTOKEN') else '✗'}")
-print(f"HF_TOKEN: {'✓' if os.environ.get('HF_TOKEN') else '✗'}")
-print(f"GEMINI_API_KEY: {'✓' if os.environ.get('GEMINI_API_KEY') else '✗'}")
-if ngrok_authtoken:
-    ngrok.set_auth_token(ngrok_authtoken)
-    print("✅ Ngrok authtoken set successfully.")
-else:
-    print("⚠️  Warning: NGROK_AUTHTOKEN environment variable not set. Ngrok might fail.")
+print("Environment variables status:")
+print(f"NGROK_AUTHTOKEN: {'✓' if ngrok_authtoken else '✗ (not found)'}")
+print(f"HF_TOKEN: {'✓' if hf_token else '✗ (not found)'}")  
+print(f"GEMINI_API_KEY: {'✓' if gemini_key else '✗ (not found)'}")
 
 # ==============================================================================
 # 3. UTILITY FUNCTIONS
