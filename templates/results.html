@@ -566,7 +566,13 @@
                 <span class="value">{{ form_data.date_range_1 }}</span>
                 <span class="count">({{ count_present }} reviews: 
                     <span class="positive-count">{{ analysis_present.praise_reviews|length }} positive</span>, 
-                    <span class="negative-count">{{ analysis_present.attention_reviews|length }} negative</span>)
+                    <span class="negative-count">{{ analysis_present.attention_reviews|length }} negative</span>
+
+{% if count_present > 0 %}, 
+<span class="negative-percentage">{{ ((analysis_present.attention_reviews|length / count_present) * 100|round(1) }}% Negative reviews</span>
+{% endif %} 
+
+)
                 </span>
             </div>
             <div class="date-range previous">
@@ -574,7 +580,12 @@
                 <span class="value">{{ form_data.date_range_2 }}</span>
                 <span class="count">({{ count_previous }} reviews: 
                     <span class="positive-count">{{ analysis_previous.praise_reviews|length }} positive</span>, 
-                    <span class="negative-count">{{ analysis_previous.attention_reviews|length }} negative</span>)
+                    <span class="negative-count">{{ analysis_previous.attention_reviews|length }} negative</span>
+{% if count_previous > 0 %}, 
+<span class="negative-percentage">{{ ((analysis_previous.attention_reviews|length / count_previous) * 100|round(1) }}% Negative reviews</span>
+{% endif %} 
+
+)
                 </span>
             </div>
         </div>
