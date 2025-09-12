@@ -1,5 +1,5 @@
 # BrandManager app.py
-# Version 2.11 - Corrected model loading and removed duplicate functions
+# Version 2.12 - Corrected model loading and removed duplicate functions and Gemini specific functions 
 
 import os
 import ssl
@@ -326,6 +326,8 @@ MODEL_CACHE = {}
 # Global cache for reviews
 REVIEW_CACHE = {}
 CACHE_KEY = None  # Current cache identifier
+# Global cache for AI-generated results to reduce API calls
+AI_RESULT_CACHE = {}
 
 def get_models(selected_model=None):
     """Initializes and returns the AI models with corrected caching and model selection."""
@@ -655,26 +657,113 @@ def identify_feature_requests(review_list):
     return feature_requests
 
 def generate_gemini_response(prompt_text):
-    """Sends a prompt to the Gemini API and returns the text response."""
+    """
+    CACHING VERSION.
+    Sends a prompt to the Gemini API, but first checks a cache to avoid repeated calls.
+    """
+    global AI_RESULT_CACHE
+    # Use the prompt text as the key for the cache
+    cache_key = prompt_text
+
+    if cache_key in AI_RESULT_CACHE:
+        print(f"✅ Returning cached Gemini response for prompt.")
+        return AI_RESULT_CACHE[cache_key]
+
     try:
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
         if not gemini_api_key:
-            print("⚠️ Gemini API key not found in environment variables. Using fallback.")
+            print("⚠️ Gemini API key not found. Cannot call API.")
             return None
 
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         response = model.generate_content(prompt_text)
 
         if not response.parts:
             print("⚠️ Gemini API response was blocked or empty.")
+            AI_RESULT_CACHE[cache_key] = None # Cache the failure to avoid retries
             return None
 
+        # Success! Store the result in the cache and return it.
+        AI_RESULT_CACHE[cache_key] = response.text
         return response.text
 
     except Exception as e:
         print(f"❌ An error occurred while calling the Gemini API: {e}")
+        AI_RESULT_CACHE[cache_key] = None # Cache the failure
         return None
+def generate_feature_themes_gemini(feature_requests):
+    """
+    GEMINI-POWERED FEATURE THEME GENERATION.
+    Asks the Gemini API for a structured JSON response to avoid parsing errors.
+    """
+    if not feature_requests:
+        return {}
+
+    request_texts = "\n".join([f"{i+1}. {req['content']}" for i, req in enumerate(feature_requests[:50])])
+    
+    # This prompt explicitly asks for a JSON object, which is much more robust to parse.
+    prompt = f"""
+You are a Senior Product Manager analyzing user feature requests.
+Analyze the following requests and group them into 2-4 main themes.
+
+For each theme, provide:
+1. A clear "themeName".
+2. A 1-2 sentence "summary".
+3. A "urgency" rating ('High', 'Medium', or 'Low').
+4. The "requestIndices" that belong to this theme.
+
+Respond with ONLY a valid JSON object in a list format, like this:
+[
+  {{
+    "themeName": "Example Theme 1",
+    "summary": "Users are asking for...",
+    "urgency": "High",
+    "requestIndices": [1, 5, 12]
+  }},
+  {{
+    "themeName": "Example Theme 2",
+    "summary": "Another group of users wants...",
+    "urgency": "Medium",
+    "requestIndices": [2, 8]
+  }}
+]
+
+Here are the user feature requests:
+{request_texts}
+"""
+
+    response_text = generate_gemini_response(prompt)
+    if not response_text:
+        return generate_fallback_feature_themes(feature_requests) # Fallback on API error
+
+    try:
+        # Find and parse the JSON block from the response
+        json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        if not json_match:
+            print("⚠️ Gemini did not return valid JSON for feature themes. Using fallback.")
+            return generate_fallback_feature_themes(feature_requests)
+            
+        parsed_themes = json.loads(json_match.group(0))
+        
+        # Convert the parsed JSON into the format your application expects
+        final_themes = {}
+        for theme in parsed_themes:
+            mapped_requests = [feature_requests[i-1] for i in theme.get("requestIndices", []) if 0 < i <= len(feature_requests)]
+            final_themes[theme["themeName"]] = {
+                'requests': mapped_requests,
+                'summary': theme["summary"],
+                'urgency': theme["urgency"],
+                'count': len(mapped_requests)
+            }
+        
+        print(f"✅ Successfully parsed {len(final_themes)} themes from Gemini JSON.")
+        return final_themes
+
+    except Exception as e:
+        print(f"Error parsing Gemini JSON for feature themes: {e}. Using rule-based fallback.")
+        return generate_fallback_feature_themes(feature_requests)
+
 
 def generate_feature_themes_with_llm(feature_requests, selected_model=None):
     """Generate feature themes using either Gemini API or local LLM."""
@@ -1273,7 +1362,9 @@ def find_proof_reviews(reviews, category, limit=3):
 def generate_structured_insights(analysis_present, analysis_previous, reviews_present_all, selected_model=None):
     """Generate structured insights with corrected model parameter passing."""
     # This call now correctly passes the selected_model parameter
+    
     feature_summary = summarize_with_llm(analysis_present['attention_reviews'], selected_model)
+    ai_summary = feature_summary
     print("AI Summary generated:")
     print(feature_summary)
     
@@ -1323,8 +1414,13 @@ def generate_structured_insights(analysis_present, analysis_previous, reviews_pr
     feature_themes = {}
     if feature_requests:
         print("Generating feature themes with LLM...")
-        # Use the LLM to generate themes from these requests
-        feature_themes = generate_feature_themes_with_llm(feature_requests, selected_model)
+        if selected_model == "Gemini-API":
+            print("Routing to Gemini API for feature theme generation...")
+            feature_themes = generate_feature_themes_gemini(feature_requests)
+        else:
+            print(f"Routing to Local LLM ({selected_model}) for feature theme generation...")
+            # Here you can call your old/simplified local LLM function
+            feature_themes = generate_feature_themes_with_llm(feature_requests, selected_model) # Using the robust fallback for local models
     
     # Return structured insights
     return {
