@@ -23,9 +23,9 @@ python-dotenv==1.0.1
 
 # NEW: Deep Learning Libraries for RoBERTa
 # Hugging Face Transformers
-transformers==4.41.2
+transformers
 # PyTorch (CPU version by default, will use CUDA if available)
-torch==2.3.0
+torch
 
 accelerate
 
@@ -39,3 +39,5 @@ markdown2
 pandas
 openpyxl
 google-generativeai
+
+pyngrok==7.1.6
