@@ -25,8 +25,8 @@ else:
 from dotenv import load_dotenv
 load_dotenv()
 
-import nltk
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
+#import nltk
+#from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from google_play_scraper import reviews, Sort, search
 from collections import defaultdict
 import requests
