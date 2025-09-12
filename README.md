@@ -1,6 +1,6 @@
 # App Analyzer: AI-Powered Google Play Store Review Insights
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]([https://colab.research.google.com/github/joyduttahere/AppAnalyzer/blob/main/colab_notebook/AppAnalyzer_Demo.ipynb])
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]([https://colab.research.google.com/github/joyduttahere/AppAnalyzer/blob/main/Share_AppAnalyzer.ipynb])
 _Click the badge above to launch the interactive demo in Google Colab._
 
 This repository contains the source code for the App Analyzer.
