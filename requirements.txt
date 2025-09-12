@@ -38,3 +38,4 @@ bitsandbytes
 markdown2
 pandas
 openpyxl
+google-generativeai
