@@ -195,6 +195,7 @@ document.getElementById('ai_model_select').addEventListener('change', function()
                     date_range_1: document.getElementById('date_range_1').value, 
                     date_range_2: document.getElementById('date_range_2').value,
                     ai_model: aiModelSelect.value  // Add the selected model
+                    country: $('#country_select').val()  // Make sure this is included
                 };
                 
                 if (!formData.app_id || !formData.date_range_1 || !formData.date_range_2) { 
